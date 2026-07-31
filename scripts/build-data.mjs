@@ -333,6 +333,18 @@ for (const doc of byId.values()) {
   }
 })(nav);
 
+/* ---------------- 站点资源 ---------------- */
+
+// logo 等公共图片直接用仓库 static/img 里的原件
+for (const name of ["logo.svg", "logo.png", "favicon.ico"]) {
+  const src = path.join(REPO, "static", "img", name);
+  if (!fs.existsSync(src)) continue;
+  const dest = path.join(HERE, "public", "img", name);
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  fs.copyFileSync(src, dest);
+  copiedImages.push(path.relative(HERE, dest));
+}
+
 const out = {
   generatedAt: new Date().toISOString(),
   source: "jinshuju/open-doc",

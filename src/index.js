@@ -145,6 +145,7 @@ function json(data, extra = {}, status = 200) {
 async function page(env) {
   const css = await assetUrl(env, "/app.css");
   const js = await assetUrl(env, "/app.js");
+  const logo = await assetUrl(env, "/img/logo.svg");
 
   return `<!doctype html>
 <html lang="zh-CN" data-theme="light">
@@ -158,18 +159,18 @@ async function page(env) {
 <body>
 
 <header class="navbar">
-  <a class="brand" href="./">
-    <span class="brand-mark">金</span>
-    <span class="brand-title">金数据开放平台</span>
-  </a>
-  <span class="brand-sep">/</span>
-  <span class="brand-sub">API v1</span>
-  <nav class="navbar-links">
-    <a href="https://open.jinshuju.net/" target="_blank" rel="noopener">开放平台文档</a>
-    <a href="https://jinshuju.net" target="_blank" rel="noopener">金数据首页</a>
-  </nav>
-  <div class="navbar-right">
-    <button class="clean-btn" id="btn-theme" title="切换主题"></button>
+  <div class="navbar__inner">
+    <div class="navbar__items">
+      <a class="navbar__brand" href="#/">
+        <img class="navbar__logo" src="${logo}" alt="金数据">
+        <b class="navbar__title">金数据开放平台</b>
+      </a>
+      <a class="navbar__link navbar__link--active" href="#/">文档</a>
+    </div>
+    <div class="navbar__items navbar__items--right">
+      <a class="navbar__link" href="https://jinshuju.net" target="_blank" rel="noopener">金数据首页<svg width="13" height="13" aria-hidden="true" viewBox="0 0 24 24" class="ext-icon"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"/></svg></a>
+      <button class="clean-btn" id="btn-theme" title="切换主题"></button>
+    </div>
   </div>
 </header>
 
@@ -189,10 +190,11 @@ async function page(env) {
   </aside>
 
   <main class="main" id="main">
-    <div class="container" id="doc"></div>
+    <div class="main-inner">
+      <div class="container" id="doc"></div>
+      <aside class="toc" id="toc"></aside>
+    </div>
   </main>
-
-  <aside class="toc" id="toc"></aside>
 
   <aside class="runner">
     <div class="runner-top">
