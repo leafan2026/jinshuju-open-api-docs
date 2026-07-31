@@ -21,7 +21,9 @@ access-control-allow-headers: authorization,content-type
 ## 数据是怎么来的
 
 ```bash
-npm run data -- ../open-doc     # 或 OPEN_DOC_REPO=/path/to/open-doc npm run data
+npm run data                    # 默认读 ../open-doc
+npm run data -- /path/to/open-doc
+# 或 OPEN_DOC_REPO=/path/to/open-doc npm run data
 ```
 
 `scripts/build-data.mjs` 读 open-doc 仓库，产出 `src/data/site.json`：
@@ -86,8 +88,10 @@ h1/h2/h3 的字号与间距、h2 上方分隔线、表格圆角行高、代码�
 ### 静态托管（推荐，无服务端）
 
 ```bash
-npm run build -- ../open-doc   # → dist/
-npm run preview                # 本地看效果
+npm run build                   # 默认读 ../open-doc → dist/
+npm run build -- /path/to/open-doc
+npm run build -- --out=public-dist   # 换输出目录
+npm run preview                 # 本地起服务器看 dist/
 ```
 
 `dist/` 直接扔任何静态托管就行。GitHub Pages 的话：
@@ -98,12 +102,16 @@ npm run preview                # 本地看效果
   with: { node-version: 22 }
 - run: |
     git clone --depth 1 https://github.com/leafan2026/open-doc.git ../open-doc
-    npm ci && npm run build -- ../open-doc
+    npm ci && npm run build
 - uses: actions/upload-pages-artifact@v3
   with: { path: dist }
 ```
 
-产物里已经带了 `.nojekyll` 和 `404.html`（hash 路由用不上，但刷新子路径时兜底）。
+产物里带了 `.nojekyll` 和 `404.html`（hash 路由用不上，刷新子路径时兜底）。
+
+> `build-static.mjs` 会清空输出目录，所以它**只认 `--out=`，不接受位置参数**，
+> 而且清空前会检查目录里有没有它自己的标记文件 `.build-static-output`——
+> 非空且没有标记就直接报错退出，避免误删仓库。
 
 ### WDL Worker（可选）
 

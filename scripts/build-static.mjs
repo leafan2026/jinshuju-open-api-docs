@@ -2,7 +2,10 @@
 /**
  * 产出纯静态站到 dist/，可以直接扔 GitHub Pages / OSS / Nginx —— 不需要任何服务端。
  *
- *   node scripts/build-static.mjs [输出目录]
+ *   node scripts/build-static.mjs [--out=目录]
+ *
+ * 输出目录只能用 --out= 指定，不接受位置参数——避免把别的路径误当成输出目录，
+ * 因为下面会把输出目录整个删掉重建。删除前还会做一次安全检查。
  *
  * 之所以不需要服务端：金数据 API 自己开了 CORS
  * （Access-Control-Allow-Origin: *，且允许 authorization 头），
@@ -16,16 +19,42 @@ import path from "node:path";
 import { renderPage } from "../src/page.js";
 
 const HERE = path.resolve(import.meta.dirname, "..");
-const OUT = path.resolve(process.argv[2] || path.join(HERE, "dist"));
 const DATA = path.join(HERE, "src", "data", "site.json");
+const MARKER = ".build-static-output";
+
+const positional = process.argv.slice(2).filter((a) => !a.startsWith("-"));
+if (positional.length) {
+  console.error(
+    `不接受位置参数 “${positional[0]}”。输出目录请用 --out=<目录> 指定。\n` +
+      "（本脚本会清空输出目录，用位置参数太容易误删别的目录）"
+  );
+  process.exit(1);
+}
+const outFlag = process.argv.slice(2).find((a) => a.startsWith("--out="));
+const OUT = path.resolve(outFlag ? outFlag.slice("--out=".length) : path.join(HERE, "dist"));
 
 if (!fs.existsSync(DATA)) {
-  console.error("缺少 src/data/site.json，先跑：npm run data -- <open-doc 仓库路径>");
+  console.error("缺少 src/data/site.json，先跑：npm run data");
   process.exit(1);
 }
 
-fs.rmSync(OUT, { recursive: true, force: true });
+// 清空前的安全检查：只允许清空「空目录」或「上次本脚本产出的目录」
+if (fs.existsSync(OUT)) {
+  const entries = fs.readdirSync(OUT);
+  const isOurs = entries.includes(MARKER);
+  if (entries.length && !isOurs) {
+    console.error(
+      `拒绝清空 ${OUT}\n` +
+        "该目录非空，且不含本脚本的标记文件，看起来不是构建产物目录。\n" +
+        `目录内容：${entries.slice(0, 8).join(", ")}${entries.length > 8 ? " …" : ""}\n` +
+        "请换一个输出目录，或先手动清空它。"
+    );
+    process.exit(1);
+  }
+  fs.rmSync(OUT, { recursive: true, force: true });
+}
 fs.mkdirSync(OUT, { recursive: true });
+fs.writeFileSync(path.join(OUT, MARKER), "由 scripts/build-static.mjs 生成，可安全删除。\n");
 
 // 页面外壳（与 worker 共用模板，只是资源用相对路径）
 fs.writeFileSync(

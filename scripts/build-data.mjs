@@ -25,7 +25,7 @@ const HERE = path.resolve(import.meta.dirname, "..");
 const DOCS = path.join(REPO, "docs");
 
 if (!fs.existsSync(DOCS)) {
-  console.error(`找不到 ${DOCS}\n用法: node --experimental-strip-types scripts/build-data.mjs <open-doc 仓库路径>`);
+  console.error(`找不到 ${DOCS}\n用法: npm run data -- <open-doc 仓库路径>`);
   process.exit(1);
 }
 

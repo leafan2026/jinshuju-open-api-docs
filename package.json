@@ -6,9 +6,9 @@
   "type": "module",
   "scripts": {
     "data": "node --experimental-strip-types scripts/build-data.mjs",
-    "build": "npm run data && node scripts/build-static.mjs",
-    "preview": "npm run build && npx --yes serve dist",
-    "deploy:wdl": "npm run data && wdl deploy ."
+    "build": "node scripts/build.mjs",
+    "preview": "npx --yes serve dist",
+    "deploy:wdl": "node --experimental-strip-types scripts/build-data.mjs && wdl deploy ."
   },
   "devDependencies": {
     "wrangler": "^4.0.0",
