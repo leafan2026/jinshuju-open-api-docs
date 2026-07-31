@@ -356,9 +356,8 @@
       '<input class="ipt" id="in-key" type="text" autocomplete="off" placeholder="你的 API Key"></div>' +
       '<div class="frow"><label>API_SECRET<span class="star">*</span></label>' +
       '<input class="ipt" id="in-secret" type="password" autocomplete="off" placeholder="你的 API Secret"></div>' +
-      '<div class="hint-box">在 <a href="https://next.jinshuju.net/profile/api" target="_blank" rel="noopener">个人中心 → API</a>' +
-      ' 或 <a href="https://next.jinshuju.net/system/api_licence" target="_blank" rel="noopener">系统设置 → 企业 API</a> 获取。' +
-      "凭据只随本次请求经服务端转发至 jinshuju.net，不落盘、不记录；浏览器侧存于 sessionStorage，关闭标签页即清除。</div></div>";
+      '<div class="cred-links">在 <a href="https://next.jinshuju.net/profile/api" target="_blank" rel="noopener">个人中心 → API</a>' +
+      ' 或 <a href="https://next.jinshuju.net/system/api_licence" target="_blank" rel="noopener">系统设置 → 企业 API</a> 获取</div></div>';
 
     if (e.pathParams && e.pathParams.length) {
       html += '<div class="rgroup"><h3>Path 参数</h3>' + e.pathParams.map(function (p) {
@@ -383,8 +382,9 @@
           "该接口为 multipart/form-data 文件上传，在线运行暂不支持；正文「示例代码」一节给出了可直接使用的写法。</div></div>";
       } else {
         var init = e.requestExample && /^\s*[[{]/.test(e.requestExample) ? e.requestExample.trim() : "{\n  \n}";
+        try { init = JSON.stringify(JSON.parse(init), null, 2); } catch (err) { /* 保留原样 */ }
         html += '<div class="rgroup"><h3>Body <span class="note">application/json</span></h3>' +
-          '<textarea class="ipt" id="in-body" spellcheck="false">' + esc(init) + "</textarea></div>";
+          jsonEditorHtml(init) + "</div>";
       }
     }
 
@@ -403,8 +403,7 @@
     wrap.querySelectorAll("[data-pp],[data-qp]").forEach(function (n) {
       n.addEventListener("input", function () { syncUrl(); if (state.tab === "code") renderOut(); });
     });
-    var bt = el("in-body");
-    if (bt) bt.addEventListener("input", function () { if (state.tab === "code") renderOut(); });
+    initJsonEditor(function () { if (state.tab === "code") renderOut(); });
 
     if (!noRun) el("btn-send").addEventListener("click", send);
     syncUrl();
@@ -415,6 +414,124 @@
   function syncUrl() {
     var u = el("run-url");
     if (u) u.textContent = API_BASE + builtPath();
+  }
+
+  /* ---------- 带高亮 / 行号 / 校验 / 全屏的 JSON 编辑器 ---------- */
+
+  function jsonEditorHtml(initial) {
+    return '<div class="jsed" id="jsed">' +
+      '<div class="jsed-bar">' +
+      '<span class="jsed-name">JSON</span>' +
+      '<span class="jsed-status" id="jsed-status"></span>' +
+      '<span class="grow"></span>' +
+      '<button class="mini" id="jsed-fmt" title="按 2 空格缩进重新格式化">格式化</button>' +
+      '<button class="mini" id="jsed-full" title="全屏编辑（Esc 退出）">' +
+      '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7">' +
+      '<path d="M9.5 2h4.5v4.5M6.5 14H2V9.5M14 9.5V14H9.5M2 6.5V2h4.5"/></svg></button>' +
+      "</div>" +
+      '<div class="jsed-body">' +
+      '<div class="jsed-gutter" id="jsed-gutter"></div>' +
+      '<div class="jsed-code">' +
+      '<pre class="jsed-hl" id="jsed-hl" aria-hidden="true"><code></code></pre>' +
+      '<textarea class="jsed-input" id="in-body" spellcheck="false" wrap="off"' +
+      ' autocapitalize="off" autocorrect="off">' + esc(initial) + "</textarea>" +
+      "</div></div></div>";
+  }
+
+  function initJsonEditor(onChange) {
+    var box = el("jsed"), ta = el("in-body"), hl = el("jsed-hl"),
+        gutter = el("jsed-gutter"), status = el("jsed-status");
+    if (!box || !ta) return;
+
+    function paint() {
+      var src = ta.value;
+      hl.firstChild.innerHTML = hlJson(src) + "\n";
+      var n = src.split("\n").length;
+      var nums = "";
+      for (var i = 1; i <= n; i++) nums += i + "\n";
+      gutter.textContent = nums;
+      // 校验
+      var t = src.trim();
+      if (!t) {
+        status.className = "jsed-status";
+        status.textContent = "空";
+      } else {
+        try {
+          JSON.parse(t);
+          status.className = "jsed-status ok";
+          status.textContent = "JSON 合法";
+        } catch (err) {
+          status.className = "jsed-status bad";
+          status.textContent = describeJsonError(err, src);
+        }
+      }
+      sync();
+    }
+
+    function sync() {
+      hl.scrollTop = ta.scrollTop;
+      hl.scrollLeft = ta.scrollLeft;
+      gutter.scrollTop = ta.scrollTop;
+    }
+
+    ta.addEventListener("input", function () { paint(); if (onChange) onChange(); });
+    ta.addEventListener("scroll", sync);
+    ta.addEventListener("keydown", function (ev) {
+      if (ev.key === "Tab") {
+        ev.preventDefault();
+        var s = ta.selectionStart, e2 = ta.selectionEnd;
+        ta.value = ta.value.slice(0, s) + "  " + ta.value.slice(e2);
+        ta.selectionStart = ta.selectionEnd = s + 2;
+        paint(); if (onChange) onChange();
+      }
+      if (ev.key === "Escape" && box.classList.contains("jsed-full")) exitFull();
+    });
+
+    el("jsed-fmt").addEventListener("click", function () {
+      try {
+        ta.value = JSON.stringify(JSON.parse(ta.value), null, 2);
+        paint(); if (onChange) onChange();
+        toast("已格式化");
+      } catch (err) {
+        paint();
+        toast("JSON 不合法，无法格式化");
+      }
+    });
+
+    function enterFull() {
+      box.classList.add("jsed-full");
+      document.body.classList.add("no-scroll");
+      ta.focus();
+      paint();
+    }
+    function exitFull() {
+      box.classList.remove("jsed-full");
+      document.body.classList.remove("no-scroll");
+      paint();
+    }
+    el("jsed-full").addEventListener("click", function () {
+      if (box.classList.contains("jsed-full")) exitFull(); else enterFull();
+    });
+    document.addEventListener("keydown", function (ev) {
+      if (ev.key === "Escape" && box.classList.contains("jsed-full")) exitFull();
+    });
+
+    paint();
+  }
+
+  function describeJsonError(err, src) {
+    var msg = String(err.message || err);
+    var pos = msg.match(/position (\d+)/);
+    if (pos) {
+      var idx = +pos[1];
+      var before = src.slice(0, idx);
+      var line = before.split("\n").length;
+      var col = idx - before.lastIndexOf("\n");
+      return "第 " + line + " 行第 " + col + " 列: " + msg.replace(/\s*in JSON at position.*$/, "").replace(/^JSON\.parse:\s*/, "");
+    }
+    var ln = msg.match(/line (\d+)/);
+    if (ln) return "第 " + ln[1] + " 行: " + msg;
+    return msg;
   }
 
   function send() {
