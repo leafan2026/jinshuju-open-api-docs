@@ -146,50 +146,64 @@ async function page(env) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>金数据开放平台 · API</title>
-<meta name="description" content="金数据开放平台 API v1 交互式文档，支持在线调试。">
+<meta name="description" content="金数据开放平台 API v1 文档，正文与 open.jinshuju.net 一致，并支持在线调试与生成请求代码。">
 <link rel="stylesheet" href="${css}">
 </head>
 <body>
-<div class="app" id="app">
+
+<header class="navbar">
+  <a class="brand" href="./">
+    <span class="brand-mark">金</span>
+    <span class="brand-title">金数据开放平台</span>
+  </a>
+  <span class="brand-sep">/</span>
+  <span class="brand-sub">API v1</span>
+  <nav class="navbar-links">
+    <a href="https://open.jinshuju.net/" target="_blank" rel="noopener">开放平台文档</a>
+    <a href="https://jinshuju.net" target="_blank" rel="noopener">金数据首页</a>
+  </nav>
+  <div class="navbar-right">
+    <button class="clean-btn" id="btn-theme" title="切换主题"></button>
+  </div>
+</header>
+
+<div class="layout" id="layout">
 
   <aside class="sidebar">
-    <div class="sidebar-head">
-      <div class="logo-mark">金</div>
-      <div class="logo-text">开放 API</div>
-      <button class="icon-btn" id="btn-theme" title="切换主题"></button>
-    </div>
     <div class="search-wrap">
       <div class="search-box">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7">
           <circle cx="7" cy="7" r="4.6"/><path d="M10.5 10.5L14 14"/>
         </svg>
-        <input id="search" type="text" placeholder="搜索" autocomplete="off" spellcheck="false">
+        <input id="search" type="text" placeholder="搜索接口" autocomplete="off" spellcheck="false">
         <kbd>⌘K</kbd>
       </div>
     </div>
-    <div class="nav" id="nav"></div>
+    <div class="menu" id="menu"></div>
   </aside>
 
-  <section class="content" id="content">
-    <div class="doc" id="doc"></div>
-  </section>
+  <main class="main" id="main">
+    <div class="container" id="doc"></div>
+  </main>
 
   <aside class="runner">
-    <div class="runner-head">
-      <h3>在线运行</h3>
-      <span class="env">正式环境</span>
-      <button class="icon-btn" id="btn-close-runner" title="关闭">
-        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
+    <div class="runner-top">
+      <h2>在线运行</h2>
+      <button class="clean-btn" id="btn-close-runner" title="收起">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7">
           <path d="M4 4l8 8M12 4l-8 8"/>
         </svg>
       </button>
     </div>
-    <div class="runner-body" id="runner-body"></div>
-    <div class="resp-head" id="resp-head"><span>返回结果</span></div>
-    <div class="resp-body" id="resp-body"></div>
+    <div class="runner-scroll" id="runner-scroll"></div>
+    <div class="runner-out">
+      <div class="tabs" id="out-tabs"></div>
+      <div class="out-pane" id="out-pane"></div>
+    </div>
   </aside>
 
 </div>
+
 <div class="toast" id="toast"></div>
 <script src="${js}"></script>
 </body>
