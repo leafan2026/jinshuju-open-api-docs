@@ -1,13 +1,12 @@
 /* 金数据开放平台 · API 文档站前端
  *
- * 正文 = open.jinshuju.net 原文 markdown，排版对齐原站。
- * 新增部分只有右侧「在线运行」：真实发请求 + 生成对应语言的请求代码。
+ * 内容源是 jinshuju/open-doc 仓库里的 markdown（由 scripts/build-data.mjs 生成 site.json），
+ * 排版沿用原站；新增的只有右侧「在线运行」——真实发请求 + 生成多语言请求代码。
  */
 (function () {
   "use strict";
 
   var API_BASE = "https://jinshuju.net";
-  var GROUP_ORDER = ["开发指南", "表单", "文件夹", "数据", "账户", "Schema"];
   var SITE = location.pathname.endsWith("/") ? location.pathname : location.pathname + "/";
 
   var LANGS = [
@@ -22,17 +21,19 @@
   ];
 
   var state = {
-    endpoints: [],
-    guides: [],
+    nav: [],
+    docs: {},
+    order: [],
     current: null,
     filter: "",
     runnerOpen: true,
     creds: { key: "", secret: "" },
-    tab: "result", // result | code
+    tab: "result",
     lang: "curl",
     response: null,
     sending: false,
     collapsed: {},
+    closeFullEditor: null,
   };
 
   /* ================= 工具 ================= */
@@ -41,10 +42,7 @@
     return String(s == null ? "" : s)
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
-  // 原文里已有的 HTML 实体（如 Array&lt;String&gt;）不要被二次转义
-  function unesc2(s) {
-    return s.replace(/&amp;(lt|gt|amp|quot|#\d+);/g, "&$1;");
-  }
+  function unesc2(s) { return s.replace(/&amp;(lt|gt|amp|quot|#\d+);/g, "&$1;"); }
   function el(id) { return document.getElementById(id); }
 
   var toastTimer;
@@ -97,7 +95,7 @@
   var LANG_LABEL = {
     json: "json", bash: "bash", shell: "bash", sh: "bash", text: "text", http: "http",
     python: "python", ruby: "ruby", java: "java", javascript: "javascript", js: "javascript",
-    php: "php", go: "go", jsonc: "jsonc",
+    php: "php", go: "go", jsonc: "jsonc", yaml: "yaml", ts: "typescript", csharp: "csharp",
   };
 
   function codeBlock(src, lang, opts) {
@@ -110,24 +108,25 @@
     codeBlock.store = codeBlock.store || {};
     codeBlock.store[id] = src;
     return '<div class="code-block">' +
-      '<div class="code-block-head"><span>' + esc(label) + "</span><span class=\"grow\"></span>" +
+      '<div class="code-block-head"><span>' + esc(label) + '</span><span class="grow"></span>' +
       (opts.noCopy ? "" : '<button class="mini" data-copy="' + id + '">复制</button>') +
       "</div><pre><code>" + body + "</code></pre></div>";
   }
 
-  /* ================= Markdown 渲染 ================= */
+  /* ================= Markdown ================= */
 
   function inlineMd(s) {
-    var out = esc(s);
-    out = unesc2(out);
-    // 行内代码优先，避免代码里的 * _ 被当成强调
+    var out = unesc2(esc(s));
     var codes = [];
     out = out.replace(/`([^`]+)`/g, function (_, c) {
       codes.push(c);
       return "\u0000" + (codes.length - 1) + "\u0000";
     });
     out = out
-      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;[^&]*&quot;)?\)/g, function (_, alt, src) {
+        return '<img src="' + src + '" alt="' + alt + '" loading="lazy">';
+      })
+      .replace(/\*\*([^*]+)\*\*|__([^_]+)__/g, function (_, a, b) { return "<strong>" + (a || b) + "</strong>"; })
       .replace(/\\([\\`*_{}\[\]()#+\-.!|])/g, "$1")
       .replace(/\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;[^&]*&quot;)?\)/g, function (_, txt, href) {
         var ext = /^https?:/.test(href);
@@ -139,18 +138,28 @@
     return out;
   }
 
-  function stripAnchor(s) {
-    return s.replace(/\[\u200b?\]\(#[^)]*\)\s*$/, "").replace(/\s*\u200b\s*$/, "").trim();
+  var slugSeen = {};
+  function slugify(text) {
+    var base = text.toLowerCase().trim()
+      .replace(/<[^>]*>/g, "")
+      .replace(/[\s]+/g, "-")
+      .replace(/[^\w\u4e00-\u9fa5-]/g, "");
+    base = base || "section";
+    if (slugSeen[base] === undefined) { slugSeen[base] = 0; return base; }
+    slugSeen[base]++;
+    return base + "-" + slugSeen[base];
   }
 
-  function renderMarkdown(md) {
+  // 渲染时顺带收集 h2/h3 供「本页总览」使用
+  var tocItems = [];
+
+  function renderMarkdown(md, topLevel) {
     var lines = String(md || "").split("\n");
     var out = [], i = 0;
 
     while (i < lines.length) {
       var line = lines[i];
 
-      // 代码块
       var fence = line.match(/^\s*```(\S*)\s*$/);
       if (fence) {
         var lang = fence[1] || "", buf = [];
@@ -161,10 +170,8 @@
         continue;
       }
 
-      // 表格
       if (/^\s*\|/.test(line) && i + 1 < lines.length && /^\s*\|[\s:\-|]+\|\s*$/.test(lines[i + 1])) {
         var cut = function (l) {
-          // 保留 \| 转义
           var t = l.trim().replace(/^\|/, "").replace(/\|$/, "");
           var parts = [], cur = "";
           for (var k = 0; k < t.length; k++) {
@@ -179,54 +186,51 @@
         i += 2;
         var rows = [];
         while (i < lines.length && /^\s*\|/.test(lines[i])) { rows.push(cut(lines[i])); i++; }
-        out.push("<table><thead><tr>" +
+        out.push('<div class="table-wrap"><table><thead><tr>' +
           head.map(function (c) { return "<th>" + inlineMd(c) + "</th>"; }).join("") +
           "</tr></thead><tbody>" +
           rows.map(function (r) {
             return "<tr>" + r.map(function (c) { return "<td>" + inlineMd(c) + "</td>"; }).join("") + "</tr>";
-          }).join("") + "</tbody></table>");
+          }).join("") + "</tbody></table></div>");
         continue;
       }
 
-      // 标题
       var hd = line.match(/^(#{1,6})\s+(.*)$/);
       if (hd) {
         var lv = Math.min(hd[1].length, 4);
-        out.push("<h" + lv + ">" + inlineMd(stripAnchor(hd[2])) + "</h" + lv + ">");
+        var txt = inlineMd(hd[2].trim());
+        if (topLevel && (lv === 2 || lv === 3)) {
+          var id = slugify(hd[2].trim());
+          tocItems.push({ level: lv, id: id, text: hd[2].trim().replace(/[`*_]/g, "") });
+          out.push("<h" + lv + ' id="' + id + '">' + txt + "</h" + lv + ">");
+        } else {
+          out.push("<h" + lv + ">" + txt + "</h" + lv + ">");
+        }
         i++;
         continue;
       }
 
-      // 引用
       if (/^\s*>\s?/.test(line)) {
         var q = [];
-        while (i < lines.length && (/^\s*>\s?/.test(lines[i]) || (q.length && lines[i].trim() !== "" && !/^\s*(#|```|\|)/.test(lines[i])))) {
-          if (!/^\s*>/.test(lines[i])) break;
-          q.push(lines[i].replace(/^\s*>\s?/, ""));
-          i++;
-        }
-        out.push("<blockquote>" + renderMarkdown(q.join("\n")) + "</blockquote>");
+        while (i < lines.length && /^\s*>/.test(lines[i])) { q.push(lines[i].replace(/^\s*>\s?/, "")); i++; }
+        out.push("<blockquote>" + renderMarkdown(q.join("\n"), false) + "</blockquote>");
         continue;
       }
 
-      // 分隔线
-      if (/^\s*(-{3,}|\*{3,})\s*$/.test(line)) { out.push("<hr>"); i++; continue; }
+      if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { out.push("<hr>"); i++; continue; }
 
-      // 列表（支持一层嵌套）
       if (/^\s*([-*+]|\d+\.)\s+/.test(line)) {
         var ordered = /^\s*\d+\./.test(line);
         var items = [], baseIndent = line.match(/^\s*/)[0].length;
         while (i < lines.length && /^\s*([-*+]|\d+\.)\s+/.test(lines[i])) {
           var ind = lines[i].match(/^\s*/)[0].length;
-          var txt = lines[i].replace(/^\s*([-*+]|\d+\.)\s+/, "");
+          var t2 = lines[i].replace(/^\s*([-*+]|\d+\.)\s+/, "");
           if (ind > baseIndent && items.length) {
-            items[items.length - 1].sub = items[items.length - 1].sub || [];
-            items[items.length - 1].sub.push(txt);
-          } else {
-            items.push({ txt: txt, sub: null });
-          }
+            var host = items[items.length - 1];
+            host.sub = host.sub || [];
+            host.sub.push(t2);
+          } else items.push({ txt: t2, sub: null });
           i++;
-          // 列表项的续行
           while (i < lines.length && lines[i].trim() !== "" &&
                  !/^\s*([-*+]|\d+\.)\s+/.test(lines[i]) && !/^\s*(#|```|\||>)/.test(lines[i]) &&
                  lines[i].match(/^\s*/)[0].length > baseIndent) {
@@ -245,64 +249,69 @@
 
       if (line.trim() === "") { i++; continue; }
 
-      // 段落
       var p = [];
       while (i < lines.length && lines[i].trim() !== "" &&
              !/^\s*(#{1,6}\s|[-*+]\s|\d+\.\s|>|\||```|-{3,}$)/.test(lines[i])) {
         p.push(lines[i]); i++;
       }
-      out.push("<p>" + inlineMd(p.join(" ")) + "</p>");
+      var html = inlineMd(p.join(" "));
+      // 独立成段的图片不要包在 <p> 里
+      out.push(/^<img[^>]*>$/.test(html) ? '<p class="img-only">' + html + "</p>" : "<p>" + html + "</p>");
     }
     return out.join("\n");
   }
 
-  /* ================= 目录 ================= */
+  /* ================= 目录树 ================= */
 
-  function groupsOf() {
-    var map = {};
-    state.guides.forEach(function (g) { (map[g.group] = map[g.group] || []).push({ kind: "guide", item: g }); });
-    state.endpoints.forEach(function (e) { (map[e.group] = map[e.group] || []).push({ kind: "endpoint", item: e }); });
-    var names = GROUP_ORDER.filter(function (g) { return map[g]; })
-      .concat(Object.keys(map).filter(function (g) { return GROUP_ORDER.indexOf(g) === -1; }));
-    return names.map(function (n) { return { name: n, entries: map[n] }; });
+  function eachDoc(items, fn) {
+    items.forEach(function (it) {
+      if (it.type === "category") eachDoc(it.items, fn);
+      else fn(it);
+    });
   }
 
-  function hit(entry, q) {
+  function hit(item, q) {
     if (!q) return true;
-    var it = entry.item;
-    return [it.name, it.id, it.path, it.method, it.description].filter(Boolean)
-      .join(" ").toLowerCase().indexOf(q) !== -1;
+    var doc = state.docs[item.route] || {};
+    return [item.name, doc.title, item.route, item.method, doc.api && doc.api.path]
+      .filter(Boolean).join(" ").toLowerCase().indexOf(q) !== -1;
+  }
+
+  function menuHtml(items, depth, q) {
+    var html = "", any = false;
+    items.forEach(function (it) {
+      if (it.type === "category") {
+        var inner = menuHtml(it.items, depth + 1, q);
+        if (!inner.any) return;
+        any = true;
+        var key = depth + ":" + it.label;
+        var collapsed = state.collapsed[key] && !q;
+        html += '<div class="menu-group d' + depth + (collapsed ? " collapsed" : "") + '" data-key="' + esc(key) + '">' +
+          '<button class="menu-group-label"><span>' + esc(it.label) + "</span>" +
+          '<svg class="caret" width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6.5l4 4 4-4"/></svg>' +
+          '</button><div class="menu-list">' + inner.html + "</div></div>";
+      } else {
+        if (!hit(it, q)) return;
+        any = true;
+        var on = state.current && state.current.route === it.route;
+        html += '<button class="menu-link d' + depth + (on ? " active" : "") + '" data-go="' + esc(it.route) + '">' +
+          '<span class="txt">' + esc(it.name) + "</span>" +
+          (it.method ? '<span class="verb ' + it.method.toLowerCase() + '">' + esc(it.method) + "</span>" : "") +
+          "</button>";
+      }
+    });
+    return { html: html, any: any };
   }
 
   function renderMenu() {
     var menu = el("menu");
     var q = state.filter.trim().toLowerCase();
-    var html = "", any = false;
-
-    groupsOf().forEach(function (g) {
-      var entries = g.entries.filter(function (e) { return hit(e, q); });
-      if (!entries.length) return;
-      any = true;
-      var collapsed = state.collapsed[g.name] && !q;
-      html += '<div class="menu-group' + (collapsed ? " collapsed" : "") + '" data-group="' + esc(g.name) + '">' +
-        '<button class="menu-group-label"><span>' + esc(g.name) + "</span>" +
-        '<svg class="caret" width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6.5l4 4 4-4"/></svg>' +
-        "</button><div class=\"menu-list\">" +
-        entries.map(function (e) {
-          var it = e.item;
-          var on = state.current && state.current.kind === e.kind && state.current.item.id === it.id;
-          return '<button class="menu-link' + (on ? " active" : "") + '" data-go="' + e.kind + "/" + it.id + '">' +
-            '<span class="txt">' + esc(it.name) + "</span>" +
-            (e.kind === "endpoint" ? '<span class="verb ' + it.method.toLowerCase() + '">' + esc(it.method) + "</span>" : "") +
-            "</button>";
-        }).join("") + "</div></div>";
-    });
-
-    menu.innerHTML = any ? html : '<div class="menu-empty">没有匹配的内容</div>';
+    var r = menuHtml(state.nav, 0, q);
+    menu.innerHTML = r.any ? r.html : '<div class="menu-empty">没有匹配的内容</div>';
 
     menu.querySelectorAll(".menu-group-label").forEach(function (n) {
       n.addEventListener("click", function () {
-        var g = n.parentElement.getAttribute("data-group");
+        var g = n.parentElement.getAttribute("data-key");
         state.collapsed[g] = !state.collapsed[g];
         n.parentElement.classList.toggle("collapsed");
       });
@@ -312,24 +321,57 @@
     });
   }
 
+  /* ================= 本页总览 ================= */
+
+  function renderToc() {
+    var box = el("toc");
+    if (!tocItems.length) { box.innerHTML = ""; box.classList.add("empty"); return; }
+    box.classList.remove("empty");
+    box.innerHTML = '<div class="toc-inner"><div class="toc-title">本页总览</div><ul class="toc-list">' +
+      tocItems.map(function (t) {
+        return '<li class="lv' + t.level + '"><a href="#" data-toc="' + esc(t.id) + '">' + esc(t.text) + "</a></li>";
+      }).join("") + "</ul></div>";
+
+    box.querySelectorAll("[data-toc]").forEach(function (a) {
+      a.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        var target = document.getElementById(a.getAttribute("data-toc"));
+        if (target) el("main").scrollTo({ top: target.offsetTop - 16, behavior: "smooth" });
+      });
+    });
+    spyToc();
+  }
+
+  function spyToc() {
+    if (!tocItems.length) return;
+    var main = el("main");
+    var top = main.scrollTop + 90;
+    var active = tocItems[0].id;
+    for (var i = 0; i < tocItems.length; i++) {
+      var n = document.getElementById(tocItems[i].id);
+      if (n && n.offsetTop <= top) active = tocItems[i].id;
+    }
+    el("toc").querySelectorAll("[data-toc]").forEach(function (a) {
+      a.classList.toggle("on", a.getAttribute("data-toc") === active);
+    });
+  }
+
   /* ================= 在线运行 ================= */
 
-  function pathParamInputs() { return document.querySelectorAll("[data-pp]"); }
-  function queryParamInputs() { return document.querySelectorAll("[data-qp]"); }
+  function api() { return state.current && state.current.api ? state.current.api : null; }
 
   function builtPath() {
-    var e = state.current && state.current.kind === "endpoint" ? state.current.item : null;
-    if (!e) return "";
-    var p = e.path;
-    pathParamInputs().forEach(function (n) {
+    var a = api();
+    if (!a) return "";
+    var p = a.path;
+    document.querySelectorAll("[data-pp]").forEach(function (n) {
       var name = n.getAttribute("data-pp");
       var v = n.value.trim();
       if (v) p = p.split(name).join(encodeURIComponent(v));
     });
     var qs = [];
-    queryParamInputs().forEach(function (n) {
-      var v = n.value.trim();
-      if (v) qs.push(encodeURIComponent(n.getAttribute("data-qp")) + "=" + encodeURIComponent(v));
+    document.querySelectorAll("[data-qp]").forEach(function (n) {
+      if (n.value.trim()) qs.push(encodeURIComponent(n.getAttribute("data-qp")) + "=" + encodeURIComponent(n.value.trim()));
     });
     return p + (qs.length ? "?" + qs.join("&") : "");
   }
@@ -339,21 +381,30 @@
     return t && t.value.trim() ? t.value : null;
   }
 
-  function renderRunner(e) {
+  function renderRunner() {
     var wrap = el("runner-scroll");
-    if (!e) return;
+    var a = api();
+    if (!a) return;
+
     if (state.closeFullEditor) { state.closeFullEditor(); state.closeFullEditor = null; }
     var mr = el("modal-root");
     if (mr) { mr.innerHTML = ""; mr.hidden = true; }
     document.body.classList.remove("modal-open");
 
-    var noRun = e.id === "create_entry_attachment";
+    var canRun = a.runnable !== false;
     var html = "";
 
     html += '<div class="req-line">' +
-      '<span class="verb ' + e.method.toLowerCase() + '">' + esc(e.method) + "</span>" +
-      '<span class="u" id="run-url">' + esc(API_BASE + e.path) + "</span>" +
-      '<button class="btn btn-accent" id="btn-send"' + (noRun ? " disabled" : "") + ">发送</button></div>";
+      '<span class="verb ' + a.method.toLowerCase() + '">' + esc(a.method) + "</span>" +
+      '<span class="u" id="run-url">' + esc(API_BASE + a.path) + "</span>" +
+      '<button class="btn btn-accent" id="btn-send"' + (canRun ? "" : " disabled") + ">发送</button></div>";
+
+    if (a.alsoMethods && a.alsoMethods.length) {
+      html += '<div class="rgroup"><h3>方法</h3><select class="ipt" id="in-method">' +
+        [a.method].concat(a.alsoMethods).map(function (m) {
+          return '<option value="' + m + '">' + m + "</option>";
+        }).join("") + "</select></div>";
+    }
 
     html += '<div class="rgroup"><h3>认证 <span class="note">Basic Auth</span></h3>' +
       '<div class="frow"><label>API_KEY<span class="star">*</span></label>' +
@@ -363,33 +414,31 @@
       '<div class="cred-links">在 <a href="https://next.jinshuju.net/profile/api" target="_blank" rel="noopener">个人中心 → API</a>' +
       ' 或 <a href="https://next.jinshuju.net/system/api_licence" target="_blank" rel="noopener">系统设置 → 企业 API</a> 获取</div></div>';
 
-    if (e.pathParams && e.pathParams.length) {
-      html += '<div class="rgroup"><h3>Path 参数</h3>' + e.pathParams.map(function (p) {
+    if (a.pathParams.length) {
+      html += '<div class="rgroup"><h3>Path 参数</h3>' + a.pathParams.map(function (p) {
         return '<div class="frow"><label title="' + esc(p.name) + '">' + esc(p.name) +
           (p.required ? '<span class="star">*</span>' : "") + "</label>" +
           '<input class="ipt" data-pp="' + esc(p.name) + '" placeholder="' + esc(p.name) + '"></div>';
       }).join("") + "</div>";
     }
 
-    if (e.queryParams && e.queryParams.length) {
-      html += '<div class="rgroup"><h3>Query 参数</h3>' + e.queryParams.map(function (p) {
+    if (a.queryParams.length) {
+      html += '<div class="rgroup"><h3>Query 参数</h3>' + a.queryParams.map(function (p) {
         return '<div class="frow"><label title="' + esc(p.name) + '">' + esc(p.name) +
           (p.required ? '<span class="star">*</span>' : "") + "</label>" +
-          '<input class="ipt" data-qp="' + esc(p.name) + '" placeholder="' +
-          esc(p.default != null && p.default !== "" ? String(p.default) : "可选") + '"></div>';
+          '<input class="ipt" data-qp="' + esc(p.name) + '" placeholder="可选"></div>';
       }).join("") + "</div>";
     }
 
-    if (["POST", "PUT", "PATCH"].indexOf(e.method) !== -1) {
-      if (noRun) {
-        html += '<div class="rgroup"><h3>Body</h3><div class="hint-box">' +
-          "该接口为 multipart/form-data 文件上传，在线运行暂不支持；正文「示例代码」一节给出了可直接使用的写法。</div></div>";
-      } else {
-        var init = e.requestExample && /^\s*[[{]/.test(e.requestExample) ? e.requestExample.trim() : "{\n  \n}";
-        try { init = JSON.stringify(JSON.parse(init), null, 2); } catch (err) { /* 保留原样 */ }
-        html += '<div class="rgroup"><h3>Body <span class="note">application/json</span></h3>' +
-          jsonEditorHtml(init) + "</div>";
-      }
+    if (!canRun) {
+      html += '<div class="rgroup"><h3>Body <span class="note">' + esc(a.contentType) + "</span></h3>" +
+        '<div class="hint-box">该接口是文件上传（multipart/form-data），在线运行暂不支持；' +
+        "正文「示例代码」一节给出了可直接使用的写法。</div></div>";
+    } else if (["POST", "PUT", "PATCH"].indexOf(a.method) !== -1 || (a.alsoMethods || []).length) {
+      var init = a.requestExample || "{\n  \n}";
+      try { init = JSON.stringify(JSON.parse(init), null, 2); } catch (err) { /* 保留 */ }
+      html += '<div class="rgroup"><h3>Body <span class="note">application/json</span></h3>' +
+        jsonEditorHtml(init) + "</div>";
     }
 
     wrap.innerHTML = html;
@@ -407,12 +456,24 @@
     wrap.querySelectorAll("[data-pp],[data-qp]").forEach(function (n) {
       n.addEventListener("input", function () { syncUrl(); if (state.tab === "code") renderOut(); });
     });
-    initJsonEditor(function () { if (state.tab === "code") renderOut(); });
+    var ms = el("in-method");
+    if (ms) ms.addEventListener("change", function () {
+      wrap.querySelector(".req-line .verb").className = "verb " + ms.value.toLowerCase();
+      wrap.querySelector(".req-line .verb").textContent = ms.value;
+      if (state.tab === "code") renderOut();
+    });
 
-    if (!noRun) el("btn-send").addEventListener("click", send);
+    initJsonEditor(function () { if (state.tab === "code") renderOut(); });
+    if (canRun) el("btn-send").addEventListener("click", send);
+
     syncUrl();
     state.response = null;
     renderOut();
+  }
+
+  function curMethod() {
+    var ms = el("in-method");
+    return ms ? ms.value : (api() ? api().method : "GET");
   }
 
   function syncUrl() {
@@ -420,7 +481,7 @@
     if (u) u.textContent = API_BASE + builtPath();
   }
 
-  /* ---------- 带高亮 / 行号 / 校验 / 全屏的 JSON 编辑器 ---------- */
+  /* ---------- JSON 编辑器 ---------- */
 
   function jsonEditorHtml(initial) {
     return '<div class="jsed" id="jsed">' +
@@ -429,9 +490,7 @@
       '<span class="jsed-status" id="jsed-status"></span>' +
       '<span class="grow"></span>' +
       '<button class="mini" id="jsed-fmt" title="按 2 空格缩进重新格式化">格式化</button>' +
-      '<button class="mini" id="jsed-full" title="全屏编辑（Esc 退出）">' +
-      '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7">' +
-      '<path d="M9.5 2h4.5v4.5M6.5 14H2V9.5M14 9.5V14H9.5M2 6.5V2h4.5"/></svg></button>' +
+      '<button class="mini" id="jsed-full"></button>' +
       "</div>" +
       '<div class="jsed-body">' +
       '<div class="jsed-gutter" id="jsed-gutter"></div>' +
@@ -450,32 +509,19 @@
     function paint() {
       var src = ta.value;
       hl.firstChild.innerHTML = hlJson(src) + "\n";
-      var n = src.split("\n").length;
-      var nums = "";
+      var n = src.split("\n").length, nums = "";
       for (var i = 1; i <= n; i++) nums += i + "\n";
       gutter.textContent = nums;
-      // 校验
       var t = src.trim();
-      if (!t) {
-        status.className = "jsed-status";
-        status.textContent = "空";
-      } else {
-        try {
-          JSON.parse(t);
-          status.className = "jsed-status ok";
-          status.textContent = "JSON 合法";
-        } catch (err) {
-          status.className = "jsed-status bad";
-          status.textContent = describeJsonError(err, src);
-        }
+      if (!t) { status.className = "jsed-status"; status.textContent = "空"; }
+      else {
+        try { JSON.parse(t); status.className = "jsed-status ok"; status.textContent = "JSON 合法"; }
+        catch (err) { status.className = "jsed-status bad"; status.textContent = describeJsonError(err, src); }
       }
       sync();
     }
-
     function sync() {
-      hl.scrollTop = ta.scrollTop;
-      hl.scrollLeft = ta.scrollLeft;
-      gutter.scrollTop = ta.scrollTop;
+      hl.scrollTop = ta.scrollTop; hl.scrollLeft = ta.scrollLeft; gutter.scrollTop = ta.scrollTop;
     }
 
     ta.addEventListener("input", function () { paint(); if (onChange) onChange(); });
@@ -483,9 +529,9 @@
     ta.addEventListener("keydown", function (ev) {
       if (ev.key === "Tab") {
         ev.preventDefault();
-        var s = ta.selectionStart, e2 = ta.selectionEnd;
-        ta.value = ta.value.slice(0, s) + "  " + ta.value.slice(e2);
-        ta.selectionStart = ta.selectionEnd = s + 2;
+        var a1 = ta.selectionStart, a2 = ta.selectionEnd;
+        ta.value = ta.value.slice(0, a1) + "  " + ta.value.slice(a2);
+        ta.selectionStart = ta.selectionEnd = a1 + 2;
         paint(); if (onChange) onChange();
       }
     });
@@ -495,17 +541,23 @@
         ta.value = JSON.stringify(JSON.parse(ta.value), null, 2);
         paint(); if (onChange) onChange();
         toast("已格式化");
-      } catch (err) {
-        paint();
-        toast("JSON 不合法，无法格式化");
-      }
+      } catch (err) { paint(); toast("JSON 不合法，无法格式化"); }
     });
 
-    // 全屏时把编辑器整体搬进独立的模态层，彻底绕开顶栏等层叠上下文
     var modal = el("modal-root");
     var home = document.createElement("div");
     home.className = "jsed-slot";
 
+    var ICON_EXPAND = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7">' +
+      '<path d="M9.5 2h4.5v4.5M6.5 14H2V9.5M14 9.5V14H9.5M2 6.5V2h4.5"/></svg>';
+    var ICON_SHRINK = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7">' +
+      '<path d="M14 2.5l-4.5 4.5M9.5 2.5H14V7M2 13.5l4.5-4.5M6.5 13.5H2V9"/></svg>';
+    var fullBtn = el("jsed-full");
+    function syncFullBtn() {
+      var on = box.classList.contains("jsed-full");
+      fullBtn.innerHTML = on ? ICON_SHRINK + "退出全屏" : ICON_EXPAND;
+      fullBtn.title = on ? "退出全屏（Esc）" : "全屏编辑";
+    }
     function enterFull() {
       if (box.classList.contains("jsed-full")) return;
       box.parentNode.insertBefore(home, box);
@@ -513,8 +565,7 @@
       modal.hidden = false;
       box.classList.add("jsed-full");
       document.body.classList.add("modal-open");
-      ta.focus();
-      paint();
+      ta.focus(); paint();
     }
     function exitFull() {
       if (!box.classList.contains("jsed-full")) return;
@@ -523,16 +574,6 @@
       modal.hidden = true;
       document.body.classList.remove("modal-open");
       paint();
-    }
-    var ICON_EXPAND = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7">' +
-      '<path d="M9.5 2h4.5v4.5M6.5 14H2V9.5M14 9.5V14H9.5M2 6.5V2h4.5"/></svg>';
-    var ICON_SHRINK = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7">' +
-      '<path d="M14 2.5l-4.5 4.5M9.5 2.5H14V7M2 13.5l4.5-4.5M6.5 13.5H2V9"/></svg>';
-    var fullBtn = el("jsed-full");
-    function syncFullBtn() {
-      var on = box.classList.contains("jsed-full");
-      fullBtn.innerHTML = (on ? ICON_SHRINK + "退出全屏" : ICON_EXPAND);
-      fullBtn.title = on ? "退出全屏（Esc）" : "全屏编辑";
     }
     fullBtn.addEventListener("click", function () {
       if (box.classList.contains("jsed-full")) exitFull(); else enterFull();
@@ -544,10 +585,9 @@
     document.addEventListener("keydown", function (ev) {
       if (ev.key === "Escape" && box.classList.contains("jsed-full")) { exitFull(); syncFullBtn(); }
     });
-    syncFullBtn();
-    // 切换接口重建面板时，确保没有残留的全屏层
     state.closeFullEditor = exitFull;
 
+    syncFullBtn();
     paint();
   }
 
@@ -555,20 +595,19 @@
     var msg = String(err.message || err);
     var pos = msg.match(/position (\d+)/);
     if (pos) {
-      var idx = +pos[1];
-      var before = src.slice(0, idx);
-      var line = before.split("\n").length;
-      var col = idx - before.lastIndexOf("\n");
-      return "第 " + line + " 行第 " + col + " 列: " + msg.replace(/\s*in JSON at position.*$/, "").replace(/^JSON\.parse:\s*/, "");
+      var idx = +pos[1], before = src.slice(0, idx);
+      var line = before.split("\n").length, col = idx - before.lastIndexOf("\n");
+      return "第 " + line + " 行第 " + col + " 列: " +
+        msg.replace(/\s*in JSON at position.*$/, "").replace(/^JSON\.parse:\s*/, "");
     }
     var ln = msg.match(/line (\d+)/);
-    if (ln) return "第 " + ln[1] + " 行: " + msg;
-    return msg;
+    return ln ? "第 " + ln[1] + " 行: " + msg : msg;
   }
+
+  /* ---------- 发送 ---------- */
 
   function send() {
     if (state.sending) return;
-    var e = state.current.item;
     if (!state.creds.key || !state.creds.secret) { toast("请先填写 API_KEY 和 API_SECRET"); return; }
     var body = bodyText();
     if (body) { try { JSON.parse(body); } catch (err) { toast("Body 不是合法 JSON"); return; } }
@@ -583,7 +622,7 @@
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        method: e.method, path: builtPath(),
+        method: curMethod(), path: builtPath(),
         apiKey: state.creds.key, apiSecret: state.creds.secret,
         body: body || undefined,
       }),
@@ -598,167 +637,109 @@
       });
   }
 
-  /* ---------- 请求代码生成 ---------- */
+  /* ---------- 请求代码 ---------- */
 
   function snippet(lang) {
-    var e = state.current && state.current.kind === "endpoint" ? state.current.item : null;
-    if (!e) return "";
+    if (!api()) return "";
     var url = API_BASE + builtPath();
     var key = state.creds.key || "YOUR_API_KEY";
     var secret = state.creds.secret || "YOUR_API_SECRET";
     var body = bodyText();
-    var compact = body ? JSON.stringify(JSON.parse(safeJson(body) ? body : "{}")) : null;
-    var m = e.method;
+    var compact = null;
+    if (body) { try { compact = JSON.stringify(JSON.parse(body)); } catch (e) { compact = null; } }
+    var m = curMethod();
 
     switch (lang) {
       case "curl":
-        return [
-          "curl -X " + m + ' "' + url + '" \\',
+        return ["curl -X " + m + ' "' + url + '" \\',
           '  -u "' + key + ":" + secret + '" \\',
           '  -H "Content-Type: application/json" \\',
-          '  -H "Accept: application/json"' + (compact ? " \\" : ""),
-        ].concat(compact ? ["  -d '" + compact + "'"] : []).join("\n");
+          '  -H "Accept: application/json"' + (compact ? " \\" : "")]
+          .concat(compact ? ["  -d '" + compact + "'"] : []).join("\n");
 
       case "js":
-        return [
-          "const auth = btoa(`" + key + ":" + secret + "`);",
-          "",
+        return ["const auth = btoa(`" + key + ":" + secret + "`);", "",
           "const res = await fetch(" + q(url) + ", {",
-          "  method: " + q(m) + ",",
-          "  headers: {",
+          "  method: " + q(m) + ",", "  headers: {",
           "    Authorization: `Basic ${auth}`,",
           '    "Content-Type": "application/json",',
-          '    Accept: "application/json",',
-          "  },",
-        ].concat(compact ? ["  body: JSON.stringify(" + pretty(body, 2) + "),"] : [])
+          '    Accept: "application/json",', "  },"]
+          .concat(compact ? ["  body: JSON.stringify(" + pretty(body, 2) + "),"] : [])
           .concat(["});", "", "const data = await res.json();", "console.log(res.status, data);"]).join("\n");
 
       case "node":
-        return [
-          "// npm i axios",
-          'import axios from "axios";',
-          "",
+        return ["// npm i axios", 'import axios from "axios";', "",
           "const { status, data } = await axios({",
-          "  method: " + q(m.toLowerCase()) + ",",
-          "  url: " + q(url) + ",",
+          "  method: " + q(m.toLowerCase()) + ",", "  url: " + q(url) + ",",
           "  auth: { username: " + q(key) + ", password: " + q(secret) + " },",
-          '  headers: { "Content-Type": "application/json", Accept: "application/json" },',
-        ].concat(compact ? ["  data: " + pretty(body, 2) + ","] : [])
+          '  headers: { "Content-Type": "application/json", Accept: "application/json" },']
+          .concat(compact ? ["  data: " + pretty(body, 2) + ","] : [])
           .concat(["});", "", "console.log(status, data);"]).join("\n");
 
       case "python":
-        return [
-          "# pip install requests",
-          "import requests",
-          "",
-          "url = " + q(url),
-          "auth = (" + q(key) + ", " + q(secret) + ")",
-          'headers = {"Content-Type": "application/json", "Accept": "application/json"}',
-        ].concat(compact ? ["payload = " + pyLit(body)] : [])
-          .concat([
-            "",
+        return ["# pip install requests", "import requests", "",
+          "url = " + q(url), "auth = (" + q(key) + ", " + q(secret) + ")",
+          'headers = {"Content-Type": "application/json", "Accept": "application/json"}']
+          .concat(compact ? ["payload = " + pyLit(body)] : [])
+          .concat(["",
             "res = requests." + m.toLowerCase() + "(url, auth=auth, headers=headers" +
               (compact ? ", json=payload" : "") + ")",
-            "print(res.status_code, res.json())",
-          ]).join("\n");
+            "print(res.status_code, res.json())"]).join("\n");
 
       case "php":
-        return [
-          "<?php",
-          "$ch = curl_init(" + q(url) + ");",
-          "curl_setopt_array($ch, [",
+        return ["<?php", "$ch = curl_init(" + q(url) + ");", "curl_setopt_array($ch, [",
           "    CURLOPT_CUSTOMREQUEST => " + q(m) + ",",
           "    CURLOPT_RETURNTRANSFER => true,",
           "    CURLOPT_USERPWD => " + q(key + ":" + secret) + ",",
-          '    CURLOPT_HTTPHEADER => ["Content-Type: application/json", "Accept: application/json"],',
-        ].concat(compact ? ["    CURLOPT_POSTFIELDS => " + q(compact) + ","] : [])
-          .concat([
-            "]);",
-            "",
-            "$response = curl_exec($ch);",
+          '    CURLOPT_HTTPHEADER => ["Content-Type: application/json", "Accept: application/json"],']
+          .concat(compact ? ["    CURLOPT_POSTFIELDS => " + q(compact) + ","] : [])
+          .concat(["]);", "", "$response = curl_exec($ch);",
             "echo curl_getinfo($ch, CURLINFO_HTTP_CODE), PHP_EOL, $response, PHP_EOL;",
-            "curl_close($ch);",
-          ]).join("\n");
+            "curl_close($ch);"]).join("\n");
 
       case "ruby":
-        return [
-          "require 'net/http'",
-          "require 'uri'",
-          "require 'json'",
-          "",
+        return ["require 'net/http'", "require 'uri'", "require 'json'", "",
           "uri = URI.parse(" + rq(url) + ")",
           "request = Net::HTTP::" + rubyClass(m) + ".new(uri, 'Content-Type' => 'application/json', 'Accept' => 'application/json')",
-          "request.basic_auth(" + rq(key) + ", " + rq(secret) + ")",
-        ].concat(compact ? ["request.body = " + rq(compact)] : [])
-          .concat([
-            "",
+          "request.basic_auth(" + rq(key) + ", " + rq(secret) + ")"]
+          .concat(compact ? ["request.body = " + rq(compact)] : [])
+          .concat(["",
             "response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true) do |http|",
-            "  http.request(request)",
-            "end",
-            "",
-            "puts response.code",
-            "puts response.body",
-          ]).join("\n");
+            "  http.request(request)", "end", "", "puts response.code", "puts response.body"]).join("\n");
 
       case "java":
-        return [
-          "import java.net.URI;",
-          "import java.net.http.*;",
-          "import java.util.Base64;",
-          "",
-          'String auth = Base64.getEncoder().encodeToString(("' + key + ":" + secret + '").getBytes());',
-          "",
+        return ["import java.net.URI;", "import java.net.http.*;", "import java.util.Base64;", "",
+          'String auth = Base64.getEncoder().encodeToString(("' + key + ":" + secret + '").getBytes());', "",
           "HttpRequest request = HttpRequest.newBuilder()",
           "    .uri(URI.create(" + q(url) + "))",
           '    .header("Authorization", "Basic " + auth)',
           '    .header("Content-Type", "application/json")',
           '    .header("Accept", "application/json")',
-          "    " + javaVerb(m, compact),
-          "    .build();",
-          "",
+          "    " + javaVerb(m, compact), "    .build();", "",
           "HttpResponse<String> response = HttpClient.newHttpClient()",
-          "    .send(request, HttpResponse.BodyHandlers.ofString());",
-          "",
+          "    .send(request, HttpResponse.BodyHandlers.ofString());", "",
           "System.out.println(response.statusCode());",
-          "System.out.println(response.body());",
-        ].join("\n");
+          "System.out.println(response.body());"].join("\n");
 
       case "go":
-        return [
-          "package main",
-          "",
-          "import (",
-          '\t"fmt"',
-          '\t"io"',
-          '\t"net/http"',
-          compact ? '\t"strings"' : "",
-          ")",
-          "",
-          "func main() {",
+        return ["package main", "", "import (", '\t"fmt"', '\t"io"', '\t"net/http"',
+          compact ? '\t"strings"' : "", ")", "", "func main() {",
           compact ? "\tbody := strings.NewReader(" + gq(compact) + ")" : "",
           "\treq, _ := http.NewRequest(" + q(m) + ", " + q(url) + ", " + (compact ? "body" : "nil") + ")",
           "\treq.SetBasicAuth(" + q(key) + ", " + q(secret) + ")",
           '\treq.Header.Set("Content-Type", "application/json")',
-          '\treq.Header.Set("Accept", "application/json")',
-          "",
-          "\tres, err := http.DefaultClient.Do(req)",
-          "\tif err != nil {",
-          "\t\tpanic(err)",
-          "\t}",
-          "\tdefer res.Body.Close()",
-          "",
-          "\tout, _ := io.ReadAll(res.Body)",
-          "\tfmt.Println(res.StatusCode, string(out))",
-          "}",
-        ].filter(function (l) { return l !== ""; }).join("\n");
+          '\treq.Header.Set("Accept", "application/json")', "",
+          "\tres, err := http.DefaultClient.Do(req)", "\tif err != nil {", "\t\tpanic(err)", "\t}",
+          "\tdefer res.Body.Close()", "", "\tout, _ := io.ReadAll(res.Body)",
+          "\tfmt.Println(res.StatusCode, string(out))", "}"]
+          .filter(function (l) { return l !== ""; }).join("\n");
     }
     return "";
   }
 
-  function safeJson(s) { try { JSON.parse(s); return true; } catch (e) { return false; } }
   function q(s) { return JSON.stringify(String(s)); }
   function rq(s) { return "'" + String(s).replace(/\\/g, "\\\\").replace(/'/g, "\\'") + "'"; }
-  function gq(s) { return "`" + String(s).replace(/`/g, "` + \"`\" + `") + "`"; }
+  function gq(s) { return "`" + String(s).replace(/`/g, '` + "`" + `') + "`"; }
   function rubyClass(m) { return { GET: "Get", POST: "Post", PUT: "Put", PATCH: "Patch", DELETE: "Delete" }[m] || "Get"; }
   function javaVerb(m, compact) {
     var pub = compact ? "HttpRequest.BodyPublishers.ofString(" + q(compact) + ")" : "HttpRequest.BodyPublishers.noBody()";
@@ -770,8 +751,7 @@
   }
   function pretty(json, indent) {
     try {
-      var s = JSON.stringify(JSON.parse(json), null, 2);
-      var pad = " ".repeat(indent);
+      var s = JSON.stringify(JSON.parse(json), null, 2), pad = " ".repeat(indent);
       return s.split("\n").map(function (l, i) { return i === 0 ? l : pad + l; }).join("\n");
     } catch (e) { return json; }
   }
@@ -784,12 +764,9 @@
 
   var SNIP_LANG = { curl: "bash", js: "javascript", node: "javascript", python: "python", php: "php", ruby: "ruby", java: "java", go: "go" };
 
-  /* ---------- 结果 / 代码面板 ---------- */
-
   function renderOut() {
-    var isEp = state.current && state.current.kind === "endpoint";
+    if (!api()) return;
     var tabs = el("out-tabs"), pane = el("out-pane");
-    if (!isEp) return;
 
     var right = "";
     if (state.tab === "result" && state.response && !state.response.pending && !state.response.error) {
@@ -834,47 +811,61 @@
 
   function bindCopy(root) {
     root.querySelectorAll("[data-copy]").forEach(function (n) {
-      n.addEventListener("click", function () {
-        copy(codeBlock.store[n.getAttribute("data-copy")] || "", "代码");
-      });
+      n.addEventListener("click", function () { copy(codeBlock.store[n.getAttribute("data-copy")] || "", "代码"); });
     });
   }
 
-  /* ================= 路由与渲染 ================= */
+  /* ================= 路由 ================= */
 
   function resolve() {
-    var m = location.hash.match(/^#\/(endpoint|guide)\/([\w.-]+)/);
-    if (m) {
-      var list = m[1] === "endpoint" ? state.endpoints : state.guides;
-      for (var i = 0; i < list.length; i++) if (list[i].id === m[2]) return { kind: m[1], item: list[i] };
-    }
-    return { kind: "guide", item: state.guides[0] };
+    var raw = location.hash.replace(/^#\/?/, "");
+    var frag = "";
+    var hi = raw.indexOf("#");
+    if (hi !== -1) { frag = raw.slice(hi + 1); raw = raw.slice(0, hi); }
+    raw = raw.replace(/\/$/, "");
+    var doc = state.docs[raw];
+    if (!doc && raw === "") doc = state.docs[""];
+    if (!doc) doc = state.docs[state.order[0]];
+    return { doc: doc, frag: frag };
   }
 
   function route() {
-    state.current = resolve();
-    var cur = state.current, it = cur.item;
-    var isEp = cur.kind === "endpoint";
+    var r = resolve();
+    if (!r.doc) return;
+    state.current = r.doc;
 
+    slugSeen = {};
+    tocItems = [];
+    var bodyHtml = renderMarkdown(r.doc.markdown, true);
+
+    var crumbs = (r.doc.breadcrumb || []).map(function (c) { return "<span>" + esc(c) + "</span>"; }).join("");
     el("doc").innerHTML =
-      '<div class="doc-head"><div class="breadcrumbs"><span>API v1</span><span>' + esc(it.group) + "</span></div>" +
+      '<div class="doc-head"><div class="breadcrumbs">' + crumbs + "</div>" +
       '<div class="doc-head-actions">' +
       '<button class="btn" data-act="copy-page">复制页面</button>' +
-      (isEp ? '<button class="btn" data-act="toggle-runner">在线运行</button>' : "") +
+      (r.doc.api ? '<button class="btn" data-act="toggle-runner">在线运行</button>' : "") +
       "</div></div>" +
-      '<div class="markdown" id="md">' + renderMarkdown(it.markdown || "") + "</div>";
+      '<div class="markdown" id="md">' + bodyHtml + "</div>";
 
     var layout = el("layout");
-    if (isEp) {
+    layout.classList.toggle("has-api", !!r.doc.api);
+    if (r.doc.api) {
       layout.classList.toggle("runner-open", state.runnerOpen);
-      renderRunner(it);
+      renderRunner();
     } else {
       layout.classList.remove("runner-open");
     }
 
-    el("main").scrollTop = 0;
-    document.title = it.name + " | 金数据开放平台 API";
+    renderToc();
     renderMenu();
+    document.title = r.doc.title + " | 金数据开放平台";
+
+    var main = el("main");
+    main.scrollTop = 0;
+    if (r.frag) {
+      var target = document.getElementById(r.frag);
+      if (target) main.scrollTop = target.offsetTop - 16;
+    }
 
     var doc = el("doc");
     bindCopy(doc);
@@ -928,13 +919,20 @@
       state.creds.key = c.key || ""; state.creds.secret = c.secret || "";
     } catch (e) { /* noop */ }
 
+    el("main").addEventListener("scroll", function () {
+      if (spyToc.raf) return;
+      spyToc.raf = requestAnimationFrame(function () { spyToc.raf = null; spyToc(); });
+    });
+
     window.addEventListener("hashchange", route);
 
     fetch(SITE + "data.json")
       .then(function (r) { return r.json(); })
       .then(function (d) {
-        state.endpoints = d.endpoints || [];
-        state.guides = d.guides || [];
+        state.nav = d.nav || [];
+        state.docs = d.docs || {};
+        state.order = [];
+        eachDoc(state.nav, function (it) { state.order.push(it.route); });
         route();
       })
       .catch(function (err) {

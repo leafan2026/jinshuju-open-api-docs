@@ -8,8 +8,7 @@
  *   GET  /healthz       → 健康检查
  */
 
-import endpoints from "./data/endpoints.json";
-import guides from "./data/guides.json";
+import site from "./data/site.json";
 
 const UPSTREAM = "https://jinshuju.net";
 const ALLOWED_PREFIX = "/api/v1/";
@@ -22,11 +21,18 @@ export default {
     const path = url.pathname.replace(/\/+$/, "") || "/";
 
     if (path === "/healthz") {
-      return json({ ok: true, endpoints: endpoints.length, guides: guides.length });
+      const docs = Object.values(site.docs);
+      return json({
+        ok: true,
+        source: site.source,
+        generatedAt: site.generatedAt,
+        docs: docs.length,
+        endpoints: docs.filter((d) => d.api).length,
+      });
     }
 
     if (path === "/data.json") {
-      return json({ endpoints, guides }, { "Cache-Control": "public, max-age=60" });
+      return json(site, { "Cache-Control": "public, max-age=60" });
     }
 
     if (path === "/_proxy") {
@@ -185,6 +191,8 @@ async function page(env) {
   <main class="main" id="main">
     <div class="container" id="doc"></div>
   </main>
+
+  <aside class="toc" id="toc"></aside>
 
   <aside class="runner">
     <div class="runner-top">

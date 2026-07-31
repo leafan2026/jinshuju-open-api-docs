@@ -5,7 +5,8 @@
   "description": "金数据开放平台 API 交互式文档站（Apifox 风格三栏 + 在线调试）",
   "type": "module",
   "scripts": {
-    "deploy": "wdl deploy ."
+    "data": "node --experimental-strip-types scripts/build-data.mjs",
+    "deploy": "npm run data && wdl deploy ."
   },
   "devDependencies": {
     "wrangler": "^4.0.0",

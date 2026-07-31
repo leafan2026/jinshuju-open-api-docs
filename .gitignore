@@ -7,3 +7,6 @@ node_modules/
 !.env.example
 .DS_Store
 *.log
+
+# 生成物（npm run data 产出）
+public/img/
