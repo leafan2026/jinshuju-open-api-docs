@@ -8,6 +8,8 @@
 
   var API_BASE = "https://jinshuju.net";
   var SITE = location.pathname.endsWith("/") ? location.pathname : location.pathname + "/";
+  // 留空 = 浏览器直连（默认）。想走转发就设 window.__JSJ_PROXY_URL__
+  var PROXY_URL = (typeof window !== "undefined" && window.__JSJ_PROXY_URL__) || "";
 
   var LANGS = [
     { id: "curl", label: "cURL" },
@@ -606,11 +608,56 @@
 
   /* ---------- 发送 ---------- */
 
+  function basic(key, secret) {
+    var bytes = new TextEncoder().encode(key + ":" + secret);
+    var bin = "";
+    for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return "Basic " + btoa(bin);
+  }
+
+  // 金数据 API 开放了 CORS（Access-Control-Allow-Origin: *，允许 authorization 头），
+  // 所以默认浏览器直连——凭据不经任何第三方服务器。
+  // PROXY_URL 只是给「CORS 被收紧」或「需要内网出口」这类情况留的后门，默认不启用。
+  function sendDirect(method, path, body) {
+    var started = Date.now();
+    var headers = {
+      Authorization: basic(state.creds.key, state.creds.secret),
+      Accept: "application/json",
+    };
+    if (body) headers["Content-Type"] = "application/json";
+    return fetch(API_BASE + path, { method: method, headers: headers, body: body || undefined })
+      .then(function (r) {
+        return r.text().then(function (text) {
+          return {
+            status: r.status,
+            statusText: r.statusText,
+            durationMs: Date.now() - started,
+            contentType: r.headers.get("content-type") || "",
+            body: text,
+          };
+        });
+      });
+  }
+
+  function sendViaProxy(method, path, body) {
+    return fetch(PROXY_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        method: method, path: path,
+        apiKey: state.creds.key, apiSecret: state.creds.secret,
+        body: body || undefined,
+      }),
+    }).then(function (r) { return r.json(); });
+  }
+
   function send() {
     if (state.sending) return;
     if (!state.creds.key || !state.creds.secret) { toast("请先填写 API_KEY 和 API_SECRET"); return; }
     var body = bodyText();
     if (body) { try { JSON.parse(body); } catch (err) { toast("Body 不是合法 JSON"); return; } }
+
+    var method = curMethod(), path = builtPath();
 
     state.sending = true;
     var btn = el("btn-send");
@@ -618,18 +665,15 @@
     state.tab = "result"; state.response = { pending: true };
     renderOut();
 
-    fetch(SITE + "_proxy", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        method: curMethod(), path: builtPath(),
-        apiKey: state.creds.key, apiSecret: state.creds.secret,
-        body: body || undefined,
-      }),
-    })
-      .then(function (r) { return r.json(); })
+    (PROXY_URL ? sendViaProxy(method, path, body) : sendDirect(method, path, body))
       .then(function (r) { state.response = r; })
-      .catch(function (err) { state.response = { error: String(err) }; })
+      .catch(function (err) {
+        state.response = {
+          error: "请求失败：" + String(err && err.message ? err.message : err) +
+            "\n\n浏览器直连被拦截时，常见原因是网络策略或 CORS。" +
+            "可以在页面里设置 window.__JSJ_PROXY_URL__ 指向一个转发端点（见 README）。",
+        };
+      })
       .finally(function () {
         state.sending = false;
         btn.disabled = false; btn.textContent = "发送";

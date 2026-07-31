@@ -10,3 +10,6 @@ node_modules/
 
 # 生成物（npm run data 产出）
 public/img/
+
+# 静态构建产物
+dist/
