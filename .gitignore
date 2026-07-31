@@ -13,3 +13,6 @@ public/img/
 
 # 静态构建产物
 dist/
+
+# 生成物（npm run data 产出，别纳入版本控制：每次构建 generatedAt 都会变）
+src/data/site.json
