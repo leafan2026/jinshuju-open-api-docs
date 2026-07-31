@@ -342,6 +342,10 @@
   function renderRunner(e) {
     var wrap = el("runner-scroll");
     if (!e) return;
+    if (state.closeFullEditor) { state.closeFullEditor(); state.closeFullEditor = null; }
+    var mr = el("modal-root");
+    if (mr) { mr.innerHTML = ""; mr.hidden = true; }
+    document.body.classList.remove("modal-open");
 
     var noRun = e.id === "create_entry_attachment";
     var html = "";
@@ -484,7 +488,6 @@
         ta.selectionStart = ta.selectionEnd = s + 2;
         paint(); if (onChange) onChange();
       }
-      if (ev.key === "Escape" && box.classList.contains("jsed-full")) exitFull();
     });
 
     el("jsed-fmt").addEventListener("click", function () {
@@ -498,23 +501,52 @@
       }
     });
 
+    // 全屏时把编辑器整体搬进独立的模态层，彻底绕开顶栏等层叠上下文
+    var modal = el("modal-root");
+    var home = document.createElement("div");
+    home.className = "jsed-slot";
+
     function enterFull() {
+      if (box.classList.contains("jsed-full")) return;
+      box.parentNode.insertBefore(home, box);
+      modal.appendChild(box);
+      modal.hidden = false;
       box.classList.add("jsed-full");
-      document.body.classList.add("no-scroll");
+      document.body.classList.add("modal-open");
       ta.focus();
       paint();
     }
     function exitFull() {
+      if (!box.classList.contains("jsed-full")) return;
       box.classList.remove("jsed-full");
-      document.body.classList.remove("no-scroll");
+      if (home.parentNode) home.parentNode.replaceChild(box, home);
+      modal.hidden = true;
+      document.body.classList.remove("modal-open");
       paint();
     }
-    el("jsed-full").addEventListener("click", function () {
+    var ICON_EXPAND = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7">' +
+      '<path d="M9.5 2h4.5v4.5M6.5 14H2V9.5M14 9.5V14H9.5M2 6.5V2h4.5"/></svg>';
+    var ICON_SHRINK = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7">' +
+      '<path d="M14 2.5l-4.5 4.5M9.5 2.5H14V7M2 13.5l4.5-4.5M6.5 13.5H2V9"/></svg>';
+    var fullBtn = el("jsed-full");
+    function syncFullBtn() {
+      var on = box.classList.contains("jsed-full");
+      fullBtn.innerHTML = (on ? ICON_SHRINK + "退出全屏" : ICON_EXPAND);
+      fullBtn.title = on ? "退出全屏（Esc）" : "全屏编辑";
+    }
+    fullBtn.addEventListener("click", function () {
       if (box.classList.contains("jsed-full")) exitFull(); else enterFull();
+      syncFullBtn();
+    });
+    modal.addEventListener("mousedown", function (ev) {
+      if (ev.target === modal) { exitFull(); syncFullBtn(); }
     });
     document.addEventListener("keydown", function (ev) {
-      if (ev.key === "Escape" && box.classList.contains("jsed-full")) exitFull();
+      if (ev.key === "Escape" && box.classList.contains("jsed-full")) { exitFull(); syncFullBtn(); }
     });
+    syncFullBtn();
+    // 切换接口重建面板时，确保没有残留的全屏层
+    state.closeFullEditor = exitFull;
 
     paint();
   }

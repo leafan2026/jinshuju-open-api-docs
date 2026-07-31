@@ -204,6 +204,7 @@ async function page(env) {
 
 </div>
 
+<div class="modal-root" id="modal-root" hidden></div>
 <div class="toast" id="toast"></div>
 <script src="${js}"></script>
 </body>
