@@ -1,0 +1,9 @@
+node_modules/
+.wrangler/
+.deploy-dist/
+.wrangler.wdl-tmp*.json
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log

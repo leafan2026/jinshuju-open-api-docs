@@ -1,0 +1,14 @@
+{
+  "name": "jinshuju-open-api-docs",
+  "version": "1.0.0",
+  "private": true,
+  "description": "金数据开放平台 API 交互式文档站（Apifox 风格三栏 + 在线调试）",
+  "type": "module",
+  "scripts": {
+    "deploy": "wdl deploy ."
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0",
+    "@wdl-dev/cli": "^1.6.0"
+  }
+}
