@@ -114,12 +114,25 @@ npm run preview                 # 本地起服务器看 dist/
 > 而且清空前会检查目录里有没有它自己的标记文件 `.build-static-output`——
 > 非空且没有标记就直接报错退出，避免误删仓库。
 
-### WDL Worker（可选）
+### WDL Worker
+
+**推送到 `main` 会自动部署**，见 `.github/workflows/deploy.yml`：
+CI 里会 clone `leafan2026/open-doc`（公开）重新生成数据，再 `wdl deploy .`。
+只需要在仓库 Settings → Secrets and variables → Actions 里配一个 secret：
+
+| Secret | 说明 |
+| --- | --- |
+| `ADMIN_TOKEN` | WDL 控制面的租户 token |
+
+`WDL_NS`（`lf`）和 `CONTROL_URL` 不敏感，直接写在 workflow 里。
+
+手动部署：
 
 ```bash
 npm install -g @wdl-dev/cli
 export WDL_NS=lf ADMIN_TOKEN=<租户 token> CONTROL_URL=https://admin-run.jinapp.net
-npm run deploy:wdl
+npm run deploy:wdl                   # 会先重新生成数据，需要本地有 ../open-doc
+wdl deploy .                         # 数据已经生成好了就用这个
 ```
 
 其他命令：`wdl whoami` / `wdl workers` / `wdl tail jinshuju-open-api-docs`。
