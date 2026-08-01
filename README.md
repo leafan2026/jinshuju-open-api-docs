@@ -135,10 +135,25 @@ npm run deploy:wdl
 <script>window.__JSJ_PROXY_URL__ = "https://your-host/_proxy";</script>
 ```
 
-`src/index.js` 里的 `POST /_proxy` 就是一个现成实现（也已带 CORS 头，可以跨域给静态站用）：
-只允许转发到 `https://jinshuju.net` 且路径以 `/api/v1/` 开头，方法白名单，
-拒绝路径里的 `..` 和换行符，请求体与响应体上限 512 KB，不写日志、不落库。
+`src/index.js` 里的 `POST /_proxy` 就是一个现成实现：只允许转发到 `https://jinshuju.net`
+且**规范化之后**的路径以 `/api/v1/` 开头（`%2e%2e` 这类写法会在校验前被 `new URL()` 还原，
+所以必须先规范化再判断），方法白名单，拒绝路径里的换行符，
+请求体与响应体上限 512 KB（先看 `Content-Length`，不等整包解析完），
+上游 20 秒不响应就中断并返回 504，上游异常返回 502，不写日志、不落库。
 它是标准 Cloudflare Workers module 格式，能原样跑在 Cloudflare / Vercel Edge 等任何地方，不绑 WDL。
+
+**跨域默认是关的**：带 `Origin` 的请求只放行同源，其他来源直接 403——不然任何网站都能拿
+这个端点当转发跳板打 `jinshuju.net`。要给别的域名用，就显式列出来：
+
+| 变量 | 作用 |
+| --- | --- |
+| `PROXY_ALLOWED_ORIGINS` | 逗号分隔的来源白名单，如 `https://docs.example.com`；填 `*` 放行全部（不建议） |
+| `PROXY_TOKEN` | 设了就要求请求带 `X-Proxy-Token`，给公网暴露的部署加一道门槛 |
+
+两个都不设 = 只有自己这个站能用它，命令行调用（不带 `Origin`）仍然放行。
+
+请求最多等 15 秒，超时自动中断；发送中按钮会变成「取消」，随时可以手动中止，
+不会一直停在「发送中」。
 
 一点提醒：「请求代码」会把填入的真实 Key / Secret 内联进代码方便直接跑，
 所以复制出去的片段含明文凭据，别贴到公共渠道。

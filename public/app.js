@@ -10,6 +10,7 @@
   var SITE = location.pathname.endsWith("/") ? location.pathname : location.pathname + "/";
   // 留空 = 浏览器直连（默认）。想走转发就设 window.__JSJ_PROXY_URL__
   var PROXY_URL = (typeof window !== "undefined" && window.__JSJ_PROXY_URL__) || "";
+  var REQUEST_TIMEOUT_MS = 15000;
 
   var LANGS = [
     { id: "curl", label: "cURL" },
@@ -34,6 +35,7 @@
     lang: "curl",
     response: null,
     sending: false,
+    abort: null,
     collapsed: {},
     closeFullEditor: null,
   };
@@ -115,6 +117,90 @@
       "</div><pre><code>" + body + "</code></pre></div>";
   }
 
+  /* ================= 链接 / 图片地址 ================= */
+
+  // 正文经过 esc()，地址里可能残留 &#58; 这类实体；浏览器读属性时会解码，
+  // 所以协议判断必须先解码，否则 `javascript&#58;` 能绕过白名单。
+  var NAMED_ENTITY = { lt: "<", gt: ">", amp: "&", quot: '"', apos: "'" };
+  function decodeEntities(s) {
+    return String(s).replace(/&(?:#(\d+)|#x([0-9a-fA-F]+)|(lt|gt|amp|quot|apos));/g,
+      function (_, dec, hex, name) {
+        if (dec) return String.fromCharCode(+dec);
+        if (hex) return String.fromCharCode(parseInt(hex, 16));
+        return NAMED_ENTITY[name] || "";
+      });
+  }
+
+  function protocolOf(url) {
+    var s = decodeEntities(url).replace(/[\u0000-\u0020]/g, "").toLowerCase();
+    var m = s.match(/^([a-z][a-z0-9+.\-]*):/);
+    return m ? m[1] : "";
+  }
+
+  var LINK_PROTOCOLS = { http: 1, https: 1, mailto: 1, tel: 1 };
+  var RESOURCE_EXT = /\.(png|jpe?g|gif|svg|webp|pdf|zip|csv|xlsx?|docx?)$/i;
+
+  // 站内路径按「站点根」解析（open-doc 里就是根相对写法），再拼上部署子路径。
+  function stripBase(path) {
+    return path.replace(/^(?:\.{1,2}\/)+/, "").replace(/^\/+/, "");
+  }
+
+  // 构建时 index/overview 会折叠到目录本身（url_params/overview → url_params），
+  // 但正文里还按原文件名写链接，这里兜一下，免得落到不存在的路由
+  function resolveRoute(route) {
+    var docs = state.docs || {};
+    if (docs[route] !== undefined) return route;
+    var folded = route.replace(/\/(overview|index|readme)$/i, "");
+    if (folded !== route && docs[folded] !== undefined) return folded;
+    return route;
+  }
+
+  // 页面是 Hash 路由，正文里的文档链接必须落到 #/xxx，否则会跳出文档站
+  function internalHref(href) {
+    var raw = decodeEntities(href);
+    var frag = "";
+    var qi = raw.indexOf("?");
+    if (qi !== -1) {
+      var id = raw.slice(qi + 1).match(/(?:^|&)id=([^&]*)/); // docsify 风格的 ?id=锚点
+      if (id) frag = id[1];
+      raw = raw.slice(0, qi);
+    }
+    var hi = raw.indexOf("#");
+    if (hi !== -1) {
+      if (!frag) frag = raw.slice(hi + 1);
+      raw = raw.slice(0, hi);
+    }
+    var path = stripBase(raw);
+    if (!path) return frag ? "#" + frag : "#";
+    // 图片、附件之类的静态资源：拼部署前缀，别当路由
+    if (RESOURCE_EXT.test(path)) return SITE + path;
+    var route = resolveRoute(path.replace(/\.md$/i, "").replace(/\/$/, ""));
+    return "#/" + route + (frag ? "#" + frag : "");
+  }
+
+  // 返回 null 表示协议不在白名单，调用方退化成纯文本
+  function safeLinkHref(href) {
+    var proto = protocolOf(href);
+    if (!proto) {
+      var raw = decodeEntities(href);
+      if (raw.charAt(0) === "#") return raw; // 页内锚点
+      return internalHref(href);
+    }
+    return LINK_PROTOCOLS[proto] ? decodeEntities(href) : null;
+  }
+
+  function safeImgSrc(src) {
+    var raw = decodeEntities(src);
+    var proto = protocolOf(src);
+    if (!proto) {
+      var path = stripBase(raw);
+      return path ? SITE + path : null;
+    }
+    if (proto === "http" || proto === "https") return raw;
+    if (proto === "data" && /^data:image\//i.test(raw.trim())) return raw;
+    return null;
+  }
+
   /* ================= Markdown ================= */
 
   function inlineMd(s) {
@@ -126,13 +212,17 @@
     });
     out = out
       .replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;[^&]*&quot;)?\)/g, function (_, alt, src) {
-        return '<img src="' + src + '" alt="' + alt + '" loading="lazy">';
+        var safeSrc = safeImgSrc(src);
+        if (!safeSrc) return alt;
+        return '<img src="' + esc(safeSrc) + '" alt="' + alt + '" loading="lazy">';
       })
       .replace(/\*\*([^*]+)\*\*|__([^_]+)__/g, function (_, a, b) { return "<strong>" + (a || b) + "</strong>"; })
       .replace(/\\([\\`*_{}\[\]()#+\-.!|])/g, "$1")
       .replace(/\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;[^&]*&quot;)?\)/g, function (_, txt, href) {
-        var ext = /^https?:/.test(href);
-        return '<a href="' + href + '"' + (ext ? ' target="_blank" rel="noopener"' : "") + ">" + txt + "</a>";
+        var safeHref = safeLinkHref(href);
+        if (safeHref === null) return txt; // 协议不在白名单：只留文字，不生成链接
+        var ext = /^https?:/i.test(safeHref);
+        return '<a href="' + esc(safeHref) + '"' + (ext ? ' target="_blank" rel="noopener"' : "") + ">" + txt + "</a>";
       });
     out = out.replace(/\u0000(\d+)\u0000/g, function (_, i) {
       return "<code>" + unesc2(esc(codes[+i])) + "</code>";
@@ -652,13 +742,14 @@
       if (box.classList.contains("jsed-full")) exitFull(); else enterFull();
       syncFullBtn();
     });
-    modal.addEventListener("mousedown", function (ev) {
-      if (ev.target === modal) { exitFull(); syncFullBtn(); }
-    });
-    document.addEventListener("keydown", function (ev) {
-      if (ev.key === "Escape" && box.classList.contains("jsed-full")) { exitFull(); syncFullBtn(); }
-    });
-    state.closeFullEditor = exitFull;
+    // 编辑器每换一个接口页面就重建一次，所以这里不能再往 document / modal 上挂监听，
+    // 否则每次都新增一份、永不移除。Esc 和点遮罩关闭统一由 init() 注册一次，
+    // 通过 state.closeFullEditor 回调到当前这个编辑器。
+    state.closeFullEditor = function () {
+      if (!box.classList.contains("jsed-full")) return;
+      exitFull();
+      syncFullBtn();
+    };
 
     syncFullBtn();
     paint();
@@ -698,14 +789,14 @@
   // 金数据 API 开放了 CORS（Access-Control-Allow-Origin: *，允许 authorization 头），
   // 所以默认浏览器直连——凭据不经任何第三方服务器。
   // PROXY_URL 只是给「CORS 被收紧」或「需要内网出口」这类情况留的后门，默认不启用。
-  function sendDirect(method, path, body) {
+  function sendDirect(method, path, body, signal) {
     var started = Date.now();
     var headers = {
       Authorization: basic(state.creds.key, state.creds.secret),
       Accept: "application/json",
       "Content-Type": "application/json",
     };
-    return fetch(API_BASE + path, { method: method, headers: headers, body: body || undefined })
+    return fetch(API_BASE + path, { method: method, headers: headers, body: body || undefined, signal: signal })
       .then(function (r) {
         return r.text().then(function (text) {
           return {
@@ -719,10 +810,11 @@
       });
   }
 
-  function sendViaProxy(method, path, body) {
+  function sendViaProxy(method, path, body, signal) {
     return fetch(PROXY_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: signal,
       body: JSON.stringify({
         method: method, path: path,
         apiKey: state.creds.key, apiSecret: state.creds.secret,
@@ -731,32 +823,64 @@
     }).then(function (r) { return r.json(); });
   }
 
+  function setSendBtn(text, sending) {
+    var btn = el("btn-send");
+    if (!btn) return;
+    btn.disabled = false;
+    btn.textContent = text;
+    btn.classList.toggle("cancel", !!sending);
+    btn.title = sending ? "点击中止本次请求" : "";
+  }
+
+  function cancelSend() {
+    if (state.abort) state.abort();
+  }
+
   function send() {
-    if (state.sending) return;
+    if (state.sending) { cancelSend(); return; } // 发送中再点一次 = 取消
     var readiness = requestReadiness();
     if (!readiness.ok) { toast(readiness.issues.join("；")); return; }
     var body = bodyText();
 
     var method = curMethod(), path = builtPath();
 
+    // 网络挂住时不能一直停在「发送中」：超时自动中断，中途也允许手动取消
+    var controller = new AbortController();
+    var timedOut = false;
+    var timer = setTimeout(function () { timedOut = true; controller.abort(); }, REQUEST_TIMEOUT_MS);
+
     state.sending = true;
-    var btn = el("btn-send");
-    btn.disabled = true; btn.textContent = "发送中";
+    state.abort = function () { clearTimeout(timer); controller.abort(); };
+    setSendBtn("取消", true);
     state.tab = "result"; state.response = { pending: true };
     renderOut();
 
-    (PROXY_URL ? sendViaProxy(method, path, body) : sendDirect(method, path, body))
+    (PROXY_URL
+      ? sendViaProxy(method, path, body, controller.signal)
+      : sendDirect(method, path, body, controller.signal))
       .then(function (r) { state.response = r; })
       .catch(function (err) {
-        state.response = {
-          error: "请求失败：" + String(err && err.message ? err.message : err) +
-            "\n\n浏览器直连被拦截时，常见原因是网络策略或 CORS。" +
-            "可以在页面里设置 window.__JSJ_PROXY_URL__ 指向一个转发端点（见 README）。",
-        };
+        var aborted = err && (err.name === "AbortError" || err.name === "TimeoutError");
+        if (aborted && timedOut) {
+          state.response = {
+            error: "请求超时：" + Math.round(REQUEST_TIMEOUT_MS / 1000) + " 秒内没有收到响应。\n\n" +
+              "可以检查网络后重试，或确认地址与参数是否正确。",
+          };
+        } else if (aborted) {
+          state.response = { error: "已取消本次请求。" };
+        } else {
+          state.response = {
+            error: "请求失败：" + String(err && err.message ? err.message : err) +
+              "\n\n浏览器直连被拦截时，常见原因是网络策略或 CORS。" +
+              "可以在页面里设置 window.__JSJ_PROXY_URL__ 指向一个转发端点（见 README）。",
+          };
+        }
       })
       .finally(function () {
+        clearTimeout(timer);
         state.sending = false;
-        btn.disabled = false; btn.textContent = "发送";
+        state.abort = null;
+        setSendBtn("发送", false);
         renderOut();
       });
   }
@@ -776,7 +900,9 @@
 
     switch (lang) {
       case "curl":
-        var curlLines = ["curl --location " + shq(url),
+        // --request 必须显式给出：只有 --data 时 curl 会按 POST 发，
+        // 不带 body 的 DELETE 会退化成 GET
+        var curlLines = ["curl --location --request " + m + " " + shq(url),
           "--header " + shq("Authorization: " + authorization),
           "--header 'Content-Type: application/json'",
           "--header 'Accept: application/json'"];
@@ -814,7 +940,7 @@
         var pythonLines = ["import requests"];
         if (compact) pythonLines.push("import json");
         pythonLines.push("", "url = " + q(url), "");
-        pythonLines.push(compact ? "payload = json.dumps(" + pretty(body, 0) + ")" : "payload = {}");
+        pythonLines.push(compact ? "payload = json.dumps(" + pyPayload(body, 0) + ")" : "payload = {}");
         pythonLines.push("", "headers = {", "  'Authorization': " + rq(authorization) + ",",
           "  'Content-Type': 'application/json',", "  'Accept': 'application/json'");
         pythonLines.push("}", "", "response = requests.request(" + q(m) + ", url, headers=headers, data=payload)", "", "print(response.text)");
@@ -881,6 +1007,35 @@
     if (m === "PUT") return ".PUT(" + pub + ")";
     return '.method("' + m + '", ' + pub + ")";
   }
+  // JSON 直接塞进 Python 会报 NameError：true/false/null 得写成 True/False/None。
+  // 字符串沿用 JSON.stringify——它产出的转义（\n \t \" \\ \uXXXX）Python 全都认。
+  function pyLiteral(value, indent) {
+    if (value === null) return "None";
+    if (value === true) return "True";
+    if (value === false) return "False";
+    if (typeof value === "number") return isFinite(value) ? String(value) : "None";
+    if (typeof value === "string") return JSON.stringify(value);
+    var pad = " ".repeat(indent), padIn = " ".repeat(indent + 2);
+    if (Array.isArray(value)) {
+      if (!value.length) return "[]";
+      return "[\n" + value.map(function (v) { return padIn + pyLiteral(v, indent + 2); }).join(",\n") +
+        "\n" + pad + "]";
+    }
+    var keys = Object.keys(value);
+    if (!keys.length) return "{}";
+    return "{\n" + keys.map(function (k) {
+      return padIn + JSON.stringify(k) + ": " + pyLiteral(value[k], indent + 2);
+    }).join(",\n") + "\n" + pad + "}";
+  }
+
+  function pyPayload(body, indent) {
+    try {
+      return pyLiteral(JSON.parse(body), indent);
+    } catch (err) {
+      return pretty(body, indent); // 调用点已确认 body 是合法 JSON，这里只是兜底
+    }
+  }
+
   function pretty(json, indent) {
     try {
       var s = JSON.stringify(JSON.parse(json), null, 2), pad = " ".repeat(indent);
@@ -932,7 +1087,8 @@
         '<path d="M5 19l3.5-1.2 8-8a2.5 2.5 0 10-3.5-3.5l-8 8L5 19z"/></svg></div>' +
         "<div>填好参数后点「发送」查看真实返回<br>也可以切到「请求代码」直接复制</div></div>";
     } else if (state.response.pending) {
-      pane.innerHTML = '<div class="out-empty">请求中…</div>';
+      pane.innerHTML = '<div class="out-empty">请求中…<br><span class="note">最多等 ' +
+        Math.round(REQUEST_TIMEOUT_MS / 1000) + ' 秒，也可以点「取消」中止</span></div>';
     } else if (state.response.error) {
       pane.innerHTML = codeBlock(state.response.error, "text");
     } else {
@@ -954,9 +1110,14 @@
     bindCopy(pane);
   }
 
+  // 源码从 store 转交给闭包持有：元素被下一次 innerHTML 覆盖时一起回收，
+  // 不会像原来那样把历史代码（含已替换的 Authorization）一直攒在 store 里
   function bindCopy(root) {
     root.querySelectorAll("[data-copy]").forEach(function (n) {
-      n.addEventListener("click", function () { copy(codeBlock.store[n.getAttribute("data-copy")] || "", "代码"); });
+      var id = n.getAttribute("data-copy");
+      var src = (codeBlock.store && codeBlock.store[id]) || "";
+      if (codeBlock.store) delete codeBlock.store[id];
+      n.addEventListener("click", function () { copy(src, "代码"); });
     });
   }
 
@@ -967,6 +1128,8 @@
     var frag = "";
     var hi = raw.indexOf("#");
     if (hi !== -1) { frag = raw.slice(hi + 1); raw = raw.slice(0, hi); }
+    // 中文标题在 location.hash 里是百分号编码的，解码后才能对上元素 id
+    try { frag = decodeURIComponent(frag); } catch (err) { /* 保持原样 */ }
     raw = raw.replace(/\/$/, "");
     var doc = state.docs[raw];
     if (!doc && raw === "") doc = state.docs[""];
@@ -1001,6 +1164,7 @@
 
     slugSeen = {};
     tocItems = [];
+    codeBlock.store = {}; // 上一页的代码块 id 已失效，别留着
     var bodyHtml = renderMarkdown(r.doc.markdown, true);
 
     el("doc").innerHTML =
@@ -1213,13 +1377,33 @@
       },
     ];
 
+    // 1280 这类窗口上，停靠的调试面板 + 目录 + 总览会把正文压到三百来像素。
+    // 正文低于这个宽度就先收起「本页总览」——它是三者里最可让的。
+    var MIN_DOC_WIDTH = 520;
+    function syncTocVisibility() {
+      var layout = el("layout"), main = el("main");
+      if (!layout || !main) return;
+      var tocWidth = cssNumber("--toc-w") || 210;
+      // 浮层模式下 main 是全宽，这里量出来自然就够宽，总览会保留
+      var available = main.getBoundingClientRect().width - tocWidth - 44;
+      layout.classList.toggle("toc-cramped", available < MIN_DOC_WIDTH);
+    }
+
     configs.forEach(function (config) { bind(config.handle, config); });
     function refreshAll() {
       configs.forEach(function (config) { if (config.refresh) config.refresh(); });
+      syncTocVisibility();
     }
     state.refreshLayout = refreshAll;
     refreshAll();
     window.addEventListener("resize", refreshAll);
+
+    // 切页面时 refreshAll 的测量会早于浏览器把新布局算出来，光靠它会漏判；
+    // 直接盯正文区的实际宽度，拖面板、缩窗口、换页面都能覆盖。
+    // （收起总览不改变 main 的宽度，所以不会自激。）
+    if (window.ResizeObserver) {
+      new ResizeObserver(syncTocVisibility).observe(el("main"));
+    }
   }
 
   /* ================= 启动 ================= */
@@ -1247,9 +1431,18 @@
     search.addEventListener("input", function () { state.filter = search.value; renderMenu(); });
     document.addEventListener("keydown", function (ev) {
       if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === "k") { ev.preventDefault(); search.focus(); search.select(); }
-      if (ev.key === "Escape" && document.activeElement === search) {
-        search.value = ""; state.filter = ""; renderMenu(); search.blur();
+      if (ev.key === "Escape") {
+        if (document.activeElement === search) {
+          search.value = ""; state.filter = ""; renderMenu(); search.blur();
+        } else if (state.closeFullEditor) {
+          state.closeFullEditor(); // 全屏 JSON 编辑器；不在全屏时它自己会忽略
+        }
       }
+    });
+
+    // 点全屏遮罩空白处关闭：只在这里注册一次，编辑器重建时不重复挂
+    el("modal-root").addEventListener("mousedown", function (ev) {
+      if (ev.target === ev.currentTarget && state.closeFullEditor) state.closeFullEditor();
     });
 
     try {

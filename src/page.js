@@ -5,12 +5,43 @@
  * worker 传 CDN 绝对地址；静态构建传相对路径。
  */
 
+// 资源可能挂在 CDN 上，CSP 得把这些来源算进去
+function assetOrigins(urls) {
+  const out = new Set();
+  for (const u of urls) {
+    if (/^https?:\/\//.test(String(u || ""))) {
+      try { out.add(new URL(u).origin); } catch { /* 忽略非法地址 */ }
+    }
+  }
+  return [...out];
+}
+
+// 正文来自 open-doc 仓库，万一被写进 javascript: 链接或外部脚本，CSP 是第二道闸
+// （第一道是 public/app.js 里的链接协议白名单）
+function csp({ css, js, logo }) {
+  const extra = assetOrigins([css, js, logo]);
+  const src = ["'self'", ...extra].join(" ");
+  return [
+    "default-src 'self'",
+    `script-src ${src}`,
+    `style-src ${src} 'unsafe-inline'`,
+    "img-src 'self' data: https:",
+    `connect-src 'self' https://jinshuju.net`,
+    "font-src 'self' data:",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+  ].join("; ");
+}
+
 export function renderPage({ css, js, logo }) {
   return `<!doctype html>
 <html lang="zh-CN" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="${csp({ css, js, logo })}">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <title>金数据开放平台 · API</title>
 <meta name="description" content="金数据开放平台 API v1 文档，正文与 open.jinshuju.net 一致，并支持在线调试与生成请求代码。">
 <link rel="stylesheet" href="${css}">

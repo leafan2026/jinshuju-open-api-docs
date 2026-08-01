@@ -297,6 +297,9 @@ body.resize-col .layout { transition: none; }
 }
 .toc::-webkit-scrollbar { display: none; }
 .toc.empty { visibility: hidden; }
+/* 停靠的调试面板把正文挤太窄时，由 JS 加这个类收起总览（见 syncTocVisibility）；
+   用户手动拉宽越过阈值后仍走原来的浮层覆盖逻辑，两者不冲突 */
+.layout.toc-cramped .toc { display: none; }
 .toc-inner { border-left: 1px solid var(--gd-border); padding-left: 14px; }
 .toc-title {
   color: var(--gd-ink-muted);
@@ -373,6 +376,14 @@ body.resize-col .layout { transition: none; }
 }
 .btn-accent:hover { background: var(--gd-accent-dark); border-color: var(--gd-accent-dark); color: #fff; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+/* 请求进行中：同一个按钮变成「取消」，用中性色和主色区分开 */
+.btn-accent.cancel {
+  background: var(--gd-surface); border-color: var(--gd-border-strong);
+  color: var(--gd-ink-soft); font-weight: 500;
+}
+.btn-accent.cancel:hover {
+  background: var(--gd-surface); border-color: var(--gd-ink-muted); color: var(--gd-ink);
+}
 
 /* ---- Markdown 正文：对齐 open.jinshuju.net ---- */
 

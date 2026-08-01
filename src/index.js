@@ -14,15 +14,40 @@ import { renderPage } from "./page.js";
 const UPSTREAM = "https://jinshuju.net";
 const ALLOWED_PREFIX = "/api/v1/";
 const ALLOWED_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
-const MAX_BODY = 512 * 1024; // 512 KB
+const MAX_BODY = 512 * 1024; // 512 KB：转发给上游的请求体上限
+const MAX_PAYLOAD = 640 * 1024; // 整个 /_proxy 请求体上限（body + 凭据 + JSON 包装）
+const UPSTREAM_TIMEOUT_MS = 20000;
 
-// 代理是可选后备（默认前端直连金数据），跨域托管时需要这些头
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
+// 代理是可选后备（默认前端直连金数据），跨域托管时需要这些头。
+// Access-Control-Allow-Origin 按请求回显，只放行同源和 PROXY_ALLOWED_ORIGINS 里列出的来源，
+// 避免任意站点把这个端点当成转发跳板。
+const CORS_BASE = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "content-type",
   "Access-Control-Max-Age": "7200",
 };
+
+function allowedOrigins(env) {
+  return String((env && env.PROXY_ALLOWED_ORIGINS) || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+// 返回 { ok, headers }：ok=false 表示这个来源不该被放行
+function corsFor(request, env) {
+  const origin = request.headers.get("Origin");
+  if (!origin) return { ok: true, headers: {} }; // 服务端/命令行调用，没有跨域概念
+  const list = allowedOrigins(env);
+  const selfOrigin = new URL(request.url).origin;
+  if (origin === selfOrigin || list.includes(origin) || list.includes("*")) {
+    return {
+      ok: true,
+      headers: { ...CORS_BASE, "Access-Control-Allow-Origin": origin, Vary: "Origin" },
+    };
+  }
+  return { ok: false, headers: { Vary: "Origin" } };
+}
 
 export default {
   async fetch(request, env) {
@@ -45,9 +70,11 @@ export default {
     }
 
     if (path === "/_proxy") {
-      if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
-      if (request.method !== "POST") return json({ error: "Method Not Allowed" }, CORS, 405);
-      return proxy(request);
+      const cors = corsFor(request, env);
+      if (!cors.ok) return json({ error: "该来源未被允许调用转发端点" }, cors.headers, 403);
+      if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors.headers });
+      if (request.method !== "POST") return json({ error: "Method Not Allowed" }, cors.headers, 405);
+      return proxy(request, env, cors.headers);
     }
 
     if (request.method !== "GET" && request.method !== "HEAD") {
@@ -65,12 +92,23 @@ export default {
 
 /* ---------------- 在线运行代理 ---------------- */
 
-async function proxy(request) {
+async function proxy(request, env, cors) {
+  const token = String((env && env.PROXY_TOKEN) || "");
+  if (token && request.headers.get("X-Proxy-Token") !== token) {
+    return json({ error: "转发端点需要 X-Proxy-Token" }, cors, 401);
+  }
+
+  // 先看 Content-Length，别等整包 JSON 解析完才发现超限
+  const declared = Number(request.headers.get("content-length") || 0);
+  if (declared > MAX_PAYLOAD) {
+    return json({ error: "请求体过大（上限 512 KB）" }, cors, 413);
+  }
+
   let payload;
   try {
     payload = await request.json();
   } catch {
-    return json({ error: "请求体不是合法 JSON" }, CORS, 400);
+    return json({ error: "请求体不是合法 JSON" }, cors, 400);
   }
 
   const method = String(payload.method || "GET").toUpperCase();
@@ -79,21 +117,28 @@ async function proxy(request) {
   const apiSecret = String(payload.apiSecret || "");
 
   if (!ALLOWED_METHODS.has(method)) {
-    return json({ error: `不支持的方法：${method}` }, CORS, 400);
+    return json({ error: `不支持的方法：${method}` }, cors, 400);
   }
-  if (!reqPath.startsWith(ALLOWED_PREFIX)) {
-    return json({ error: `只允许代理 ${ALLOWED_PREFIX}* 下的请求` }, CORS, 400);
-  }
-  if (reqPath.includes("..") || /[\r\n]/.test(reqPath)) {
-    return json({ error: "非法请求路径" }, CORS, 400);
+  if (/[\r\n]/.test(reqPath)) {
+    return json({ error: "非法请求路径" }, cors, 400);
   }
   if (!apiKey || !apiSecret) {
-    return json({ error: "缺少 API_KEY 或 API_SECRET" }, CORS, 400);
+    return json({ error: "缺少 API_KEY 或 API_SECRET" }, cors, 400);
   }
 
-  const target = new URL(reqPath, UPSTREAM);
+  // 白名单必须在 URL 规范化之后校验：`/api/v1/%2e%2e/x` 这类写法
+  // 在原始字符串上看是合法的，规范化后却会跳出 /api/v1/。
+  let target;
+  try {
+    target = new URL(reqPath, UPSTREAM);
+  } catch {
+    return json({ error: "非法请求路径" }, cors, 400);
+  }
   if (target.origin !== UPSTREAM) {
-    return json({ error: "非法目标地址" }, CORS, 400);
+    return json({ error: "非法目标地址" }, cors, 400);
+  }
+  if (!target.pathname.startsWith(ALLOWED_PREFIX)) {
+    return json({ error: `只允许代理 ${ALLOWED_PREFIX}* 下的请求` }, cors, 400);
   }
 
   const headers = {
@@ -103,10 +148,15 @@ async function proxy(request) {
     "User-Agent": "jinshuju-open-api-docs/1.0 (+try-it console)",
   };
 
-  const init = { method, headers, redirect: "manual" };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  const init = { method, headers, redirect: "manual", signal: controller.signal };
   if (["POST", "PUT", "PATCH"].includes(method) && payload.body) {
     const body = String(payload.body);
-    if (body.length > MAX_BODY) return json({ error: "请求体过大（上限 512 KB）" }, CORS, 413);
+    if (body.length > MAX_BODY) {
+      clearTimeout(timer);
+      return json({ error: "请求体过大（上限 512 KB）" }, cors, 413);
+    }
     init.body = body;
   }
 
@@ -115,7 +165,13 @@ async function proxy(request) {
   try {
     upstream = await fetch(target.toString(), init);
   } catch (err) {
-    return json({ error: `上游请求失败：${err && err.message ? err.message : String(err)}` }, CORS);
+    clearTimeout(timer);
+    const aborted = err && (err.name === "AbortError" || err.name === "TimeoutError");
+    return json({
+      error: aborted
+        ? `上游请求超时（${UPSTREAM_TIMEOUT_MS / 1000} 秒无响应）`
+        : `上游请求失败：${err && err.message ? err.message : String(err)}`,
+    }, cors, aborted ? 504 : 502);
   }
   const durationMs = Date.now() - started;
 
@@ -124,6 +180,8 @@ async function proxy(request) {
     text = await upstream.text();
   } catch {
     text = "";
+  } finally {
+    clearTimeout(timer);
   }
   if (text.length > MAX_BODY) text = text.slice(0, MAX_BODY) + "\n…（响应已截断）";
 
@@ -133,7 +191,7 @@ async function proxy(request) {
     durationMs,
     contentType: upstream.headers.get("content-type") || "",
     body: text,
-  }, CORS);
+  }, cors);
 }
 
 function b64(s) {
