@@ -948,10 +948,8 @@
     if (sel) sel.addEventListener("change", function () { state.lang = sel.value; renderOut(); });
     var statusJump = tabs.querySelector(".status-doc-jump");
     if (statusJump) statusJump.addEventListener("click", function () {
-      if (!scrollToDocHeading("状态码") && !scrollToDocHeading("Response")) {
-        toast("正文中未找到状态码说明"); return;
-      }
-      toast("已定位到正文状态码");
+      if (scrollToDocHeading("状态码")) { toast("已定位到正文状态码"); return; }
+      location.hash = "#/api_v1/status_code";
     });
     bindCopy(pane);
   }
