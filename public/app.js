@@ -8,6 +8,9 @@
 
   var API_BASE = "https://jinshuju.net";
   var SITE = location.pathname.endsWith("/") ? location.pathname : location.pathname + "/";
+  // 静态资源（含正文图片）的基地址，由页面模板写在 <html data-asset-base> 上。
+  // 部署到 WDL 时 public/ 在 CDN 上，站点路径下并没有这些文件，所以不能用 SITE 拼图片。
+  var ASSET_BASE = (document.documentElement.getAttribute("data-asset-base") || SITE);
   // 留空 = 浏览器直连（默认）。想走转发就设 window.__JSJ_PROXY_URL__
   var PROXY_URL = (typeof window !== "undefined" && window.__JSJ_PROXY_URL__) || "";
   var REQUEST_TIMEOUT_MS = 15000;
@@ -172,8 +175,8 @@
     }
     var path = stripBase(raw);
     if (!path) return frag ? "#" + frag : "#";
-    // 图片、附件之类的静态资源：拼部署前缀，别当路由
-    if (RESOURCE_EXT.test(path)) return SITE + path;
+    // 图片、附件之类的静态资源：拼资源基地址，别当路由
+    if (RESOURCE_EXT.test(path)) return ASSET_BASE + path;
     var route = resolveRoute(path.replace(/\.md$/i, "").replace(/\/$/, ""));
     return "#/" + route + (frag ? "#" + frag : "");
   }
@@ -194,7 +197,7 @@
     var proto = protocolOf(src);
     if (!proto) {
       var path = stripBase(raw);
-      return path ? SITE + path : null;
+      return path ? ASSET_BASE + path : null;
     }
     if (proto === "http" || proto === "https") return raw;
     if (proto === "data" && /^data:image\//i.test(raw.trim())) return raw;

@@ -12,11 +12,22 @@ import site from "./data/site.json";
 import { renderPage } from "./page.js";
 
 const UPSTREAM = "https://jinshuju.net";
+// 只有 test/check-proxy.mjs 会用 wrangler --var 注入假上游，好让「正常转发」这条也能测；
+// 生产不设这个变量，上游就永远是 jinshuju.net。
+function upstreamOf(env) {
+  const v = env && env.UPSTREAM_ORIGIN;
+  return v ? String(v) : UPSTREAM;
+}
 const ALLOWED_PREFIX = "/api/v1/";
 const ALLOWED_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
 const MAX_BODY = 512 * 1024; // 512 KB：转发给上游的请求体上限
 const MAX_PAYLOAD = 640 * 1024; // 整个 /_proxy 请求体上限（body + 凭据 + JSON 包装）
 const UPSTREAM_TIMEOUT_MS = 20000;
+// 同样只为测试留的开关，好让「超时回 504」这条不用真等 20 秒
+function upstreamTimeoutOf(env) {
+  const v = Number((env && env.UPSTREAM_TIMEOUT_MS) || 0);
+  return v > 0 ? v : UPSTREAM_TIMEOUT_MS;
+}
 
 // 代理是可选后备（默认前端直连金数据），跨域托管时需要这些头。
 // Access-Control-Allow-Origin 按请求回显，只放行同源和 PROXY_ALLOWED_ORIGINS 里列出的来源，
@@ -122,19 +133,40 @@ async function proxy(request, env, cors) {
   if (/[\r\n]/.test(reqPath)) {
     return json({ error: "非法请求路径" }, cors, 400);
   }
+
+  // 光靠下面的规范化还不够：`%2e%2e%2f` 把整个 `../` 编码成了一个路径段，
+  // 规范化不会把它当作双点段，于是原样转发给上游——上游要是解码 %2f，
+  // 就等于跳出了 /api/v1/。所以先解码一次，看有没有 .. 或反斜杠。
+  // 正常的 API 路径（表单 token、serial number）不会用到这些。
+  // 反复解码到不再变化，免得 %252e%252e%252f 这种多层编码靠一次解码看不出来
+  let decodedPath = reqPath.split(/[?#]/)[0];
+  for (let i = 0; i < 4; i++) {
+    let next;
+    try {
+      next = decodeURIComponent(decodedPath);
+    } catch {
+      return json({ error: "非法请求路径" }, cors, 400);
+    }
+    if (next === decodedPath) break;
+    decodedPath = next;
+  }
+  if (decodedPath.includes("..") || decodedPath.includes("\\")) {
+    return json({ error: "非法请求路径" }, cors, 400);
+  }
   if (!apiKey || !apiSecret) {
     return json({ error: "缺少 API_KEY 或 API_SECRET" }, cors, 400);
   }
 
   // 白名单必须在 URL 规范化之后校验：`/api/v1/%2e%2e/x` 这类写法
   // 在原始字符串上看是合法的，规范化后却会跳出 /api/v1/。
+  const upstreamOrigin = upstreamOf(env);
   let target;
   try {
-    target = new URL(reqPath, UPSTREAM);
+    target = new URL(reqPath, upstreamOrigin);
   } catch {
     return json({ error: "非法请求路径" }, cors, 400);
   }
-  if (target.origin !== UPSTREAM) {
+  if (target.origin !== new URL(upstreamOrigin).origin) {
     return json({ error: "非法目标地址" }, cors, 400);
   }
   if (!target.pathname.startsWith(ALLOWED_PREFIX)) {
@@ -148,8 +180,9 @@ async function proxy(request, env, cors) {
     "User-Agent": "jinshuju-open-api-docs/1.0 (+try-it console)",
   };
 
+  const timeoutMs = upstreamTimeoutOf(env);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   const init = { method, headers, redirect: "manual", signal: controller.signal };
   if (["POST", "PUT", "PATCH"].includes(method) && payload.body) {
     const body = String(payload.body);
@@ -169,7 +202,7 @@ async function proxy(request, env, cors) {
     const aborted = err && (err.name === "AbortError" || err.name === "TimeoutError");
     return json({
       error: aborted
-        ? `上游请求超时（${UPSTREAM_TIMEOUT_MS / 1000} 秒无响应）`
+        ? `上游请求超时（${timeoutMs / 1000} 秒无响应）`
         : `上游请求失败：${err && err.message ? err.message : String(err)}`,
     }, cors, aborted ? 504 : 502);
   }

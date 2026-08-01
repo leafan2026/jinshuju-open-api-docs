@@ -34,9 +34,19 @@ function csp({ css, js, logo }) {
   ].join("; ");
 }
 
+// 正文里的图片也在 public/ 里，跟 css/js 一起被托管到同一个地方。
+// WDL 把 public/ 上传到 static.run.jinapp.net/<...>/<版本>/，站点路径上并没有这些文件，
+// 所以图片必须用这个基地址，不能用 location.pathname 去拼——那样只会落到 worker 的兜底页面。
+// 从 css 的地址剥掉文件名即可，三种部署形态都成立：
+//   WDL → https://static.../<版本>/    本地 wrangler dev → ./    静态构建 → 空（相对当前页）
+function assetBaseOf(css) {
+  return String(css || "").replace(/[?#].*$/, "").replace(/[^/]*$/, "");
+}
+
 export function renderPage({ css, js, logo }) {
+  const assetBase = assetBaseOf(css);
   return `<!doctype html>
-<html lang="zh-CN" data-theme="light">
+<html lang="zh-CN" data-theme="light" data-asset-base="${assetBase.replace(/"/g, "&quot;")}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
