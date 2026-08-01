@@ -414,6 +414,39 @@
     return { ok: issues.length === 0, issues: issues };
   }
 
+  function paramDescHtml(desc) {
+    var source = String(desc || "").replace(/\]\(\/([^)\s]+)\)/g, "](#/$1)");
+    return inlineMd(source);
+  }
+
+  function paramHelpButtonHtml(id) {
+    return '<button class="param-help-toggle" type="button" data-param-help="' + id + '"' +
+      ' aria-expanded="false" aria-controls="' + id + '">' +
+      '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">' +
+      '<path d="M3 2.5h7.25A1.75 1.75 0 0 1 12 4.25V13H4.75A1.75 1.75 0 0 0 3 14.75V2.5Z"/>' +
+      '<path d="M3 12.75h7.25M6 5.5h3.5M6 8h3.5"/></svg>' +
+      '<span>参数说明</span><span class="param-help-chevron" aria-hidden="true">⌄</span></button>';
+  }
+
+  function paramHelpPanelHtml(id, kind, params) {
+    if (!params || !params.length) return "";
+    var intro = kind === "body"
+      ? "请求体使用 application/json，字段格式如下。"
+      : "以下参数会编码到请求 URL 的查询字符串中。";
+    return '<div class="param-help-panel" id="' + id + '" hidden>' +
+      '<div class="param-help-intro">' + intro + "</div>" +
+      '<div class="param-help-list">' + params.map(function (p) {
+        return '<div class="param-help-item">' +
+          '<div class="param-help-meta"><code>' + esc(p.name) + "</code>" +
+          '<span class="param-help-type">' + esc(p.type || "String") + "</span>" +
+          '<span class="param-help-required ' + (p.required ? "is-required" : "") + '">' +
+          (p.required ? "必填" : "选填") + "</span></div>" +
+          '<div class="param-help-desc">' + paramDescHtml(p.desc || "暂无说明") + "</div></div>";
+      }).join("") + "</div>" +
+      '<button class="param-doc-link" type="button" data-param-doc>' +
+      '定位正文 Request <span aria-hidden="true">→</span></button></div>';
+  }
+
   function renderRunner() {
     var wrap = el("runner-scroll");
     var a = api();
@@ -456,7 +489,9 @@
     }
 
     if (a.queryParams.length) {
-      html += '<div class="rgroup"><h3>Query 参数</h3>' + a.queryParams.map(function (p) {
+      html += '<div class="rgroup"><div class="rgroup-head"><h3>Query 参数</h3>' +
+        paramHelpButtonHtml("query-param-help") + "</div>" +
+        paramHelpPanelHtml("query-param-help", "query", a.queryParams) + a.queryParams.map(function (p) {
         return '<div class="frow"><label title="' + esc(p.name) + '">' + esc(p.name) +
           (p.required ? '<span class="star">*</span>' : "") + "</label>" +
           '<input class="ipt" data-qp="' + esc(p.name) + '" placeholder="可选"></div>';
@@ -464,14 +499,18 @@
     }
 
     if (!canRun) {
-      html += '<div class="rgroup"><h3>Body <span class="note">' + esc(a.contentType) + "</span></h3>" +
+      html += '<div class="rgroup"><div class="rgroup-head"><h3>Body <span class="note">' +
+        esc(a.contentType) + "</span></h3>" +
+        (a.bodyParams && a.bodyParams.length ? paramHelpButtonHtml("body-param-help") : "") + "</div>" +
+        paramHelpPanelHtml("body-param-help", "body", a.bodyParams || []) +
         '<div class="hint-box">该接口是文件上传（multipart/form-data），在线运行暂不支持；' +
         "正文「示例代码」一节给出了可直接使用的写法。</div></div>";
     } else if (["POST", "PUT", "PATCH"].indexOf(a.method) !== -1 || (a.alsoMethods || []).length) {
       var init = a.requestExample || "{\n  \n}";
       try { init = JSON.stringify(JSON.parse(init), null, 2); } catch (err) { /* 保留 */ }
-      html += '<div class="rgroup"><h3>Body <span class="note">application/json</span></h3>' +
-        jsonEditorHtml(init) + "</div>";
+      html += '<div class="rgroup"><div class="rgroup-head"><h3>Body <span class="note">application/json</span></h3>' +
+        (a.bodyParams && a.bodyParams.length ? paramHelpButtonHtml("body-param-help") : "") + "</div>" +
+        paramHelpPanelHtml("body-param-help", "body", a.bodyParams || []) + jsonEditorHtml(init) + "</div>";
     }
 
     wrap.innerHTML = html;
@@ -488,6 +527,25 @@
 
     wrap.querySelectorAll("[data-pp],[data-qp]").forEach(function (n) {
       n.addEventListener("input", function () { syncUrl(); if (state.tab === "code") renderOut(); });
+    });
+    wrap.querySelectorAll("[data-param-help]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var panel = el(btn.getAttribute("data-param-help"));
+        if (!panel) return;
+        var open = panel.hidden;
+        panel.hidden = !open;
+        btn.setAttribute("aria-expanded", String(open));
+        btn.classList.toggle("on", open);
+      });
+    });
+    wrap.querySelectorAll("[data-param-doc]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var request = tocItems.find(function (item) { return /^request$/i.test(item.text.trim()); });
+        var target = request ? document.getElementById(request.id) : null;
+        if (!target) { toast("正文中未找到 Request"); return; }
+        el("main").scrollTo({ top: target.offsetTop - 16, behavior: "smooth" });
+        toast("已定位到正文 Request");
+      });
     });
     var ms = el("in-method");
     if (ms) ms.addEventListener("change", function () {
@@ -546,10 +604,15 @@
       for (var i = 1; i <= n; i++) nums += i + "\n";
       gutter.textContent = nums;
       var t = src.trim();
-      if (!t) { status.className = "jsed-status"; status.textContent = "空"; }
+      if (!t) { status.className = "jsed-status"; status.textContent = "空"; status.title = "空"; }
       else {
-        try { JSON.parse(t); status.className = "jsed-status ok"; status.textContent = "JSON 合法"; }
-        catch (err) { status.className = "jsed-status bad"; status.textContent = describeJsonError(err, src); }
+        try {
+          JSON.parse(t); status.className = "jsed-status ok"; status.textContent = "JSON 合法";
+          status.title = "JSON 合法";
+        } catch (err) {
+          var message = describeJsonError(err, src);
+          status.className = "jsed-status bad"; status.textContent = message; status.title = message;
+        }
       }
       sync();
     }
