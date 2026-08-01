@@ -83,6 +83,7 @@ h1/h2/h3 的字号与间距、h2 上方分隔线、表格圆角行高、代码�
 │   ├── run-all.mjs           # npm test 入口
 │   ├── check-links.mjs       # 链接 / 图片 / 协议白名单
 │   ├── check-snippets.mjs    # 生成的 cURL 与 Python 真的执行一遍
+│   ├── check-url-params.mjs  # URL 传参签名 / JWT，对着 Python 实现比对
 │   ├── check-proxy.mjs       # /_proxy 安全用例
 │   └── mock-upstream.mjs     # 假上游，测试不碰线上
 └── wrangler.jsonc            # 只在用 WDL 部署时需要
@@ -102,6 +103,22 @@ npm test                        # 三组检查，只连本机
 - Python 里出现 JSON 的 `true/false/null`，一运行就 `NameError`
 - 正文相对链接跳出 Hash 路由、图片用站点路径拼导致返回 HTML
 - `javascript:` 与 HTML 实体绕过、`/_proxy` 的路径逃逸与跨站调用
+- URL 传参签名：字段没按字典序升序、签名对编码后的值算、
+  HMAC 结果直接 Base64 而不是先转 hex——每一条都会让签名对不上
+
+## 在线工具
+
+除了接口页右侧的「在线运行」，URL 传参那两页正文末尾还各有一个链接生成器：
+
+| 页面 | 生成什么 |
+| --- | --- |
+| `url_params/form_field_url_params` | 带 `sign` 的表单链接（HMAC-SHA256 → hex → Base64） |
+| `url_params/global_field_url_params` | 带 `cusd` 的表单链接（JWT HS256） |
+
+都在浏览器里用 Web Crypto 算，`sign_secret` 不发给任何服务器、也不写进 storage。
+字段会自动按 API CODE 字典序升序重排（顺序错了签名就对不上），并把用来签名的
+参数串显示出来，方便对照自己的实现。`test/check-url-params.mjs` 拿这两套算法
+对着 Python 的独立实现逐字节比对，生成的 JWT 也用 pyjwt 反向验过。
 
 ## 部署
 

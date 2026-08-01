@@ -320,6 +320,66 @@ body.resize-col .layout { transition: none; }
 .toc-list a:hover { color: var(--gd-ink); text-decoration: none; }
 .toc-list a.on { color: var(--gd-accent); font-weight: 550; }
 
+/* ---- URL 传参生成器（正文内嵌） ---- */
+
+.urltool {
+  border: 1px solid var(--gd-border);
+  border-radius: var(--gd-radius-lg);
+  background: var(--gd-bg-subtle);
+  padding: 16px;
+  margin: 0 0 1.5rem;
+}
+.urltool-grid {
+  display: grid; grid-template-columns: auto minmax(0, 1fr);
+  gap: 9px 12px; align-items: center;
+}
+.urltool-grid > label {
+  color: var(--gd-ink-muted);
+  font: 650 0.6875rem/1.4 var(--font-base);
+  letter-spacing: 0.06em; text-transform: uppercase;
+  white-space: nowrap;
+}
+.urltool-rows-head {
+  display: flex; align-items: center; gap: 8px;
+  margin: 16px 0 8px;
+  color: var(--gd-ink-muted);
+  font: 650 0.6875rem/1.4 var(--font-base);
+  letter-spacing: 0.06em;
+}
+.urltool-rows-head .mini { margin-left: auto; }
+.urltool-row {
+  display: grid; grid-template-columns: minmax(0, 8rem) minmax(0, 1fr) auto;
+  gap: 8px; margin-bottom: 7px; align-items: center;
+}
+.urltool-row .ipt.code { font-family: var(--font-mono); font-size: 12.5px; }
+.urltool .mini.ghost {
+  padding: 3px 7px; color: var(--gd-ink-muted);
+  background: transparent; border-color: transparent;
+}
+.urltool .mini.ghost:hover { color: var(--gd-accent); border-color: var(--gd-border-strong); }
+.urltool-out { margin-top: 14px; }
+.urltool-block { margin-bottom: 12px; }
+.urltool-block:last-child { margin-bottom: 0; }
+.urltool-label {
+  color: var(--gd-ink-muted);
+  font: 650 0.6875rem/1.4 var(--font-base);
+  letter-spacing: 0.06em; margin-bottom: 5px;
+}
+.urltool-out .code-block { margin: 0; }
+/* 生成的签名和链接都是很长的单行，换行显示比横向滚动好读。
+   .code-block pre code 把 white-space 设成了 pre，得在 code 上盖掉 */
+.urltool-out .code-block pre code { white-space: pre-wrap; word-break: break-all; }
+.urltool-note {
+  color: var(--gd-ink-muted); font-size: 12.5px; line-height: 1.6;
+  margin-bottom: 12px;
+}
+.urltool-note:last-child { margin-bottom: 0; }
+
+@media (max-width: 640px) {
+  .urltool-grid { grid-template-columns: minmax(0, 1fr); gap: 5px; }
+  .urltool-row { grid-template-columns: minmax(0, 1fr) auto; }
+}
+
 /* ---- 面包屑（对齐原站 .theme-doc-breadcrumbs / infima .breadcrumbs） ---- */
 
 .doc-head {

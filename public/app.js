@@ -1124,6 +1124,201 @@
     });
   }
 
+  /* ================= URL 传参生成器 ================= */
+
+  // 这两页讲的是怎么手工拼带签名的表单链接，最容易错的两处交给代码做：
+  //   1. 字段 API CODE 必须按字典序升序拼接（和文档里 Java TreeMap / Python sorted 一致），
+  //      顺序错了签名就对不上
+  //   2. 签名针对「未编码的原始值」计算，最终 URL 里才做 URL 编码
+  // sign_secret 只在浏览器里参与计算，不发给任何服务器。
+  var URL_TOOLS = {
+    "url_params/form_field_url_params": {
+      title: "在线生成带签名的表单链接",
+      prefix: "field_",
+      placeholder: "field_1",
+      rowHint: "字段 API CODE 与要传入的值",
+      secretHint: "企业密钥 sign_secret（只在本机参与计算，不会发送）",
+    },
+    "url_params/global_field_url_params": {
+      title: "在线生成带 JWT 的表单链接",
+      prefix: "gf_",
+      placeholder: "gf_1",
+      rowHint: "全局字段 API CODE 与要传入的值",
+      secretHint: "企业密钥 sign_secret（JWT 必需，只在本机参与计算，不会发送）",
+      jwt: true,
+    },
+  };
+
+  var FORM_BASE = "https://jinshuju.net/f/";
+  var utf8 = new TextEncoder();
+
+  function bytesToB64(bytes) {
+    var bin = "";
+    for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
+  }
+  function bytesToHex(bytes) {
+    var out = "";
+    for (var i = 0; i < bytes.length; i++) out += ("0" + bytes[i].toString(16)).slice(-2);
+    return out;
+  }
+  function b64ToB64Url(s) {
+    return s.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+
+  function hmacSha256(secret, message) {
+    return crypto.subtle
+      .importKey("raw", utf8.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"])
+      .then(function (key) { return crypto.subtle.sign("HMAC", key, utf8.encode(message)); })
+      .then(function (sig) { return new Uint8Array(sig); });
+  }
+
+  // 文档里三份示例（Java/Python/Ruby）都是：先取 hex 摘要，再对那串 hex 做 Base64
+  function signParams(secret, urlParams) {
+    return hmacSha256(secret, urlParams).then(function (bytes) {
+      return bytesToB64(utf8.encode(bytesToHex(bytes)));
+    });
+  }
+
+  function jwtHS256(secret, payload) {
+    var head = b64ToB64Url(bytesToB64(utf8.encode(JSON.stringify({ alg: "HS256", typ: "JWT" }))));
+    var body = b64ToB64Url(bytesToB64(utf8.encode(JSON.stringify(payload))));
+    var signing = head + "." + body;
+    return hmacSha256(secret, signing).then(function (bytes) {
+      return signing + "." + b64ToB64Url(bytesToB64(bytes));
+    });
+  }
+
+  function urlToolHtml(cfg, id) {
+    return '<h2 id="' + id + '">' + esc(cfg.title) + "</h2>" +
+      '<div class="urltool" id="urltool">' +
+      '<div class="urltool-grid">' +
+      '<label>表单 Token</label>' +
+      '<input class="ipt" id="ut-token" type="text" placeholder="表单链接 /f/ 后面那串" autocomplete="off">' +
+      "<label>sign_secret</label>" +
+      '<input class="ipt" id="ut-secret" type="password" placeholder="' + esc(cfg.secretHint) + '" autocomplete="off">' +
+      "</div>" +
+      '<div class="urltool-rows-head"><span>' + esc(cfg.rowHint) + "</span>" +
+      '<button class="mini" id="ut-add">添加一行</button></div>' +
+      '<div class="urltool-rows" id="ut-rows"></div>' +
+      '<div class="urltool-out" id="ut-out"></div>' +
+      "</div>";
+  }
+
+  function mountUrlTool(cfg) {
+    var rowsBox = el("ut-rows"), out = el("ut-out");
+    if (!rowsBox) return;
+    var rows = [{ key: cfg.prefix + "1", value: "" }, { key: cfg.prefix + "2", value: "" }];
+    var seq = 0;
+
+    function drawRows() {
+      rowsBox.innerHTML = rows.map(function (r, i) {
+        return '<div class="urltool-row">' +
+          '<input class="ipt code" data-k="' + i + '" value="' + esc(r.key) + '" placeholder="' + esc(cfg.placeholder) + '" autocomplete="off">' +
+          '<input class="ipt" data-v="' + i + '" value="' + esc(r.value) + '" placeholder="要传入的值" autocomplete="off">' +
+          '<button class="mini ghost" data-del="' + i + '" title="删除这一行" aria-label="删除这一行">✕</button>' +
+          "</div>";
+      }).join("");
+      rowsBox.querySelectorAll("[data-k]").forEach(function (n) {
+        n.addEventListener("input", function () { rows[+n.getAttribute("data-k")].key = n.value; update(); });
+      });
+      rowsBox.querySelectorAll("[data-v]").forEach(function (n) {
+        n.addEventListener("input", function () { rows[+n.getAttribute("data-v")].value = n.value; update(); });
+      });
+      rowsBox.querySelectorAll("[data-del]").forEach(function (n) {
+        n.addEventListener("click", function () {
+          rows.splice(+n.getAttribute("data-del"), 1);
+          if (!rows.length) rows.push({ key: cfg.prefix + "1", value: "" });
+          drawRows(); update();
+        });
+      });
+    }
+
+    function update() {
+      var token = el("ut-token").value.trim();
+      var secret = el("ut-secret").value;
+      var filled = rows.filter(function (r) { return r.key.trim(); });
+      var mine = ++seq; // 异步算签名，只认最后一次输入的结果
+
+      if (!filled.length) {
+        out.innerHTML = '<div class="urltool-note">填一个字段 API CODE 就能看到生成结果。</div>';
+        return;
+      }
+
+      // 升序是签名能对上的前提，这里直接按字典序排（与文档示例的 TreeMap / sorted 一致）
+      var sorted = filled.slice().sort(function (a, b) {
+        return a.key.trim() < b.key.trim() ? -1 : a.key.trim() > b.key.trim() ? 1 : 0;
+      });
+      var reordered = sorted.some(function (r, i) { return r !== filled[i]; });
+      var shownToken = token || "YOUR_FORM_TOKEN";
+
+      if (cfg.jwt) {
+        var payload = {};
+        sorted.forEach(function (r) { payload[r.key.trim()] = r.value; });
+        if (!secret) {
+          render(mine, [
+            block("原始数据", JSON.stringify(payload, null, 2), "json"),
+            note("填入 sign_secret 后会生成 JWT 和完整链接。JWT 只签名、不加密，别放私密信息。"),
+          ]);
+          return;
+        }
+        jwtHS256(secret, payload).then(function (jwt) {
+          render(mine, [
+            block("原始数据", JSON.stringify(payload, null, 2), "json"),
+            block("JWT", jwt, "text"),
+            block("表单链接", FORM_BASE + shownToken + "?cusd=" + encodeURIComponent(jwt), "text"),
+            token ? "" : note("填入表单 Token 才是可直接打开的链接。"),
+          ]);
+        });
+        return;
+      }
+
+      // 签名针对未编码的原始值；最终 URL 里才做 URL 编码
+      var signBase = sorted.map(function (r) { return r.key.trim() + "=" + r.value; }).join("&");
+      var query = sorted.map(function (r) {
+        return r.key.trim() + "=" + encodeURIComponent(r.value);
+      }).join("&");
+
+      var parts = [
+        block("签名用的参数串（按 API CODE 升序，值不编码）", signBase, "text"),
+        reordered ? note("你填的顺序不是升序，已自动按 API CODE 升序重排——顺序错了签名就对不上。") : "",
+      ];
+
+      if (!secret) {
+        parts.push(block("表单链接（未签名）", FORM_BASE + shownToken + "?" + query, "text"));
+        parts.push(note("填入 sign_secret 后会追加 sign 参数。"));
+        render(mine, parts);
+        return;
+      }
+      signParams(secret, signBase).then(function (sign) {
+        parts.push(block("sign", sign, "text"));
+        parts.push(block("表单链接", FORM_BASE + shownToken + "?" + query + "&sign=" + encodeURIComponent(sign), "text"));
+        if (!token) parts.push(note("填入表单 Token 才是可直接打开的链接。"));
+        render(mine, parts);
+      });
+    }
+
+    function block(label, text, lang) {
+      return '<div class="urltool-block"><div class="urltool-label">' + esc(label) + "</div>" +
+        codeBlock(text, lang) + "</div>";
+    }
+    function note(text) { return '<div class="urltool-note">' + esc(text) + "</div>"; }
+    function render(mine, parts) {
+      if (mine !== seq) return; // 有更新的输入了，丢掉这次结果
+      out.innerHTML = parts.filter(Boolean).join("");
+      bindCopy(out);
+    }
+
+    el("ut-token").addEventListener("input", update);
+    el("ut-secret").addEventListener("input", update);
+    el("ut-add").addEventListener("click", function () {
+      rows.push({ key: cfg.prefix + (rows.length + 1), value: "" });
+      drawRows(); update();
+    });
+    drawRows();
+    update();
+  }
+
   /* ================= 路由 ================= */
 
   function resolve() {
@@ -1170,6 +1365,14 @@
     codeBlock.store = {}; // 上一页的代码块 id 已失效，别留着
     var bodyHtml = renderMarkdown(r.doc.markdown, true);
 
+    // URL 传参这两页讲的是手工拼签名链接，正文末尾接一个生成器
+    var urlTool = URL_TOOLS[r.doc.route];
+    if (urlTool) {
+      var toolId = slugify(urlTool.title);
+      tocItems.push({ level: 2, id: toolId, text: urlTool.title });
+      bodyHtml += urlToolHtml(urlTool, toolId);
+    }
+
     el("doc").innerHTML =
       '<div class="doc-head' + (r.doc.route === "" ? " no-crumbs" : "") + '">' +
       breadcrumbsHtml(r.doc) +
@@ -1188,6 +1391,8 @@
       layout.classList.remove("runner-open");
     }
     if (state.refreshLayout) state.refreshLayout();
+
+    if (urlTool) mountUrlTool(urlTool);
 
     renderToc();
     renderMenu();

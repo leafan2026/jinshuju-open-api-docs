@@ -60,6 +60,9 @@ failed += (await node(["test/check-links.mjs"])) === 0 ? 0 : 1;
 section("请求代码");
 failed += (await node(["test/check-snippets.mjs"])) === 0 ? 0 : 1;
 
+section("URL 传参签名");
+failed += (await node(["test/check-url-params.mjs"])) === 0 ? 0 : 1;
+
 section("代理安全");
 for (const [port, what] of [[MOCK_PORT, "假上游"], [WORKER_PORT, "worker"]]) {
   if (!(await portFree(port))) {
