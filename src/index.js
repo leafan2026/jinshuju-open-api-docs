@@ -99,6 +99,7 @@ async function proxy(request) {
   const headers = {
     Authorization: "Basic " + b64(`${apiKey}:${apiSecret}`),
     Accept: "application/json",
+    "Content-Type": "application/json",
     "User-Agent": "jinshuju-open-api-docs/1.0 (+try-it console)",
   };
 
@@ -106,7 +107,6 @@ async function proxy(request) {
   if (["POST", "PUT", "PATCH"].includes(method) && payload.body) {
     const body = String(payload.body);
     if (body.length > MAX_BODY) return json({ error: "请求体过大（上限 512 KB）" }, CORS, 413);
-    headers["Content-Type"] = "application/json";
     init.body = body;
   }
 

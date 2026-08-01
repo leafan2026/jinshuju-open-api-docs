@@ -46,6 +46,7 @@ export function renderPage({ css, js, logo }) {
       </div>
     </div>
     <div class="menu" id="menu"></div>
+    <div class="resize-handle resize-sidebar" id="resize-sidebar" role="separator" aria-label="调整目录宽度" aria-orientation="vertical" tabindex="0"></div>
   </aside>
 
   <main class="main" id="main">
@@ -55,7 +56,10 @@ export function renderPage({ css, js, logo }) {
     </div>
   </main>
 
-  <aside class="runner">
+  <button class="runner-backdrop" id="runner-backdrop" type="button" aria-label="关闭在线运行"></button>
+
+  <aside class="runner" aria-label="在线运行浮窗">
+    <div class="resize-handle resize-runner" id="resize-runner" role="separator" aria-label="调整在线运行宽度" aria-orientation="vertical" tabindex="0"></div>
     <div class="runner-top">
       <h2>在线运行</h2>
       <button class="clean-btn" id="btn-close-runner" title="收起">
@@ -65,6 +69,7 @@ export function renderPage({ css, js, logo }) {
       </button>
     </div>
     <div class="runner-scroll" id="runner-scroll"></div>
+    <div class="resize-handle resize-runner-split" id="resize-runner-split" role="separator" aria-label="调整请求与结果区域高度" aria-orientation="horizontal" tabindex="0"></div>
     <div class="runner-out">
       <div class="tabs" id="out-tabs"></div>
       <div class="out-pane" id="out-pane"></div>

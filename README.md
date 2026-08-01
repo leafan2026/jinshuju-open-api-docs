@@ -48,7 +48,8 @@ open-doc 里新增一个接口 md 并挂进 `sidebars.ts`，重跑一次就自�
 - 「本页总览」跟随滚动高亮当前小节
 - 「在线运行」：填 API_KEY / API_SECRET → 填 Path / Query / Body → 发送 → 真实响应（状态码 + 耗时）
 - 支持多方法接口（如修改单条数据的 PATCH / POST / PUT）切换
-- 「请求代码」标签页：cURL / JavaScript / Node.js / Python / PHP / Ruby / Java / Go，随输入实时更新
+- 在线运行默认作为停靠右栏适当压缩正文，保持“请求表单在上、返回结果 / 请求代码页签在下”的顺序；向左拖宽越过正文安全阈值后，自动切换为遮罩上的覆盖浮窗并可继续放大，缩回阈值内重新停靠，关闭后原页面布局不变
+- 请求代码支持 cURL / JavaScript / Node.js / Python / PHP / Ruby / Java / Go，并随输入实时更新；只有凭据、必填参数和 JSON 均有效时，才生成已内联 `Authorization: Basic <Base64>`、`Content-Type: application/json`、`Accept: application/json` 三个标准请求头且可直接运行的稳定代码模板
 - Body 是带语法高亮、行号、合法性校验（精确到行列）、一键格式化、全屏编辑的 JSON 编辑器
 - 亮/暗色主题
 

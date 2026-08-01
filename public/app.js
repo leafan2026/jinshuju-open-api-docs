@@ -383,6 +383,37 @@
     return t && t.value.trim() ? t.value : null;
   }
 
+  function requestReadiness() {
+    var a = api();
+    var issues = [];
+    if (!state.creds.key.trim()) issues.push("缺少 API_KEY");
+    if (!state.creds.secret.trim()) issues.push("缺少 API_SECRET");
+
+    function valueOf(kind, name) {
+      var value = "";
+      document.querySelectorAll("[data-" + kind + "]").forEach(function (n) {
+        if (n.getAttribute("data-" + kind) === name) value = n.value.trim();
+      });
+      return value;
+    }
+
+    if (a) {
+      (a.pathParams || []).forEach(function (p) {
+        if (p.required && !valueOf("pp", p.name)) issues.push("缺少 Path 参数 " + p.name);
+      });
+      (a.queryParams || []).forEach(function (p) {
+        if (p.required && !valueOf("qp", p.name)) issues.push("缺少 Query 参数 " + p.name);
+      });
+    }
+
+    var body = bodyText();
+    if (body) {
+      try { JSON.parse(body); }
+      catch (err) { issues.push("Body JSON 不合法"); }
+    }
+    return { ok: issues.length === 0, issues: issues };
+  }
+
   function renderRunner() {
     var wrap = el("runner-scroll");
     var a = api();
@@ -623,8 +654,8 @@
     var headers = {
       Authorization: basic(state.creds.key, state.creds.secret),
       Accept: "application/json",
+      "Content-Type": "application/json",
     };
-    if (body) headers["Content-Type"] = "application/json";
     return fetch(API_BASE + path, { method: method, headers: headers, body: body || undefined })
       .then(function (r) {
         return r.text().then(function (text) {
@@ -653,9 +684,9 @@
 
   function send() {
     if (state.sending) return;
-    if (!state.creds.key || !state.creds.secret) { toast("请先填写 API_KEY 和 API_SECRET"); return; }
+    var readiness = requestReadiness();
+    if (!readiness.ok) { toast(readiness.issues.join("；")); return; }
     var body = bodyText();
-    if (body) { try { JSON.parse(body); } catch (err) { toast("Body 不是合法 JSON"); return; } }
 
     var method = curMethod(), path = builtPath();
 
@@ -686,102 +717,110 @@
   function snippet(lang) {
     if (!api()) return "";
     var url = API_BASE + builtPath();
-    var key = state.creds.key || "YOUR_API_KEY";
-    var secret = state.creds.secret || "YOUR_API_SECRET";
+    var key = state.creds.key;
+    var secret = state.creds.secret;
     var body = bodyText();
     var compact = null;
     if (body) { try { compact = JSON.stringify(JSON.parse(body)); } catch (e) { compact = null; } }
     var m = curMethod();
+    var authorization = basic(key, secret);
 
     switch (lang) {
       case "curl":
-        return ["curl -X " + m + ' "' + url + '" \\',
-          '  -u "' + key + ":" + secret + '" \\',
-          '  -H "Content-Type: application/json" \\',
-          '  -H "Accept: application/json"' + (compact ? " \\" : "")]
-          .concat(compact ? ["  -d '" + compact + "'"] : []).join("\n");
+        var curlLines = ["curl --location " + shq(url),
+          "--header " + shq("Authorization: " + authorization),
+          "--header 'Content-Type: application/json'",
+          "--header 'Accept: application/json'"];
+        if (compact) {
+          curlLines.push("--data " + shq(compact));
+        }
+        var curlCommand = curlLines.map(function (line, i) {
+          return line + (i < curlLines.length - 1 ? " \\" : "");
+        }).join("\n");
+        return curlCommand;
 
       case "js":
-        return ["const auth = btoa(`" + key + ":" + secret + "`);", "",
-          "const res = await fetch(" + q(url) + ", {",
-          "  method: " + q(m) + ",", "  headers: {",
-          "    Authorization: `Basic ${auth}`,",
-          '    "Content-Type": "application/json",',
-          '    Accept: "application/json",', "  },"]
-          .concat(compact ? ["  body: JSON.stringify(" + pretty(body, 2) + "),"] : [])
-          .concat(["});", "", "const data = await res.json();", "console.log(res.status, data);"]).join("\n");
+        return ["const headers = new Headers();",
+          "headers.append(\"Authorization\", " + q(authorization) + ");",
+          "headers.append(\"Content-Type\", \"application/json\");",
+          "headers.append(\"Accept\", \"application/json\");"]
+          .concat(["", "const requestOptions = {", "  method: " + q(m) + ",", "  headers,",
+            compact ? "  body: JSON.stringify(" + pretty(body, 2) + ")," : "",
+            '  redirect: "follow",', "};", "",
+            "fetch(" + q(url) + ", requestOptions)", "  .then((response) => response.text())",
+            "  .then(console.log)", "  .catch(console.error);"])
+          .filter(function (line) { return line !== "" || !compact; }).join("\n");
 
       case "node":
         return ["// npm i axios", 'import axios from "axios";', "",
-          "const { status, data } = await axios({",
-          "  method: " + q(m.toLowerCase()) + ",", "  url: " + q(url) + ",",
-          "  auth: { username: " + q(key) + ", password: " + q(secret) + " },",
-          '  headers: { "Content-Type": "application/json", Accept: "application/json" },']
+          "const config = {", "  method: " + q(m.toLowerCase()) + ",", "  maxBodyLength: Infinity,",
+          "  url: " + q(url) + ",", "  headers: {", "    Authorization: " + q(authorization) + ",",
+          '    "Content-Type": "application/json",', '    Accept: "application/json",']
+          .concat(["  },"])
           .concat(compact ? ["  data: " + pretty(body, 2) + ","] : [])
-          .concat(["});", "", "console.log(status, data);"]).join("\n");
+          .concat(["};", "", "axios.request(config)", "  .then((response) => console.log(response.data))",
+            "  .catch((error) => console.error(error));"]).join("\n");
 
       case "python":
-        return ["# pip install requests", "import requests", "",
-          "url = " + q(url), "auth = (" + q(key) + ", " + q(secret) + ")",
-          'headers = {"Content-Type": "application/json", "Accept": "application/json"}']
-          .concat(compact ? ["payload = " + pyLit(body)] : [])
-          .concat(["",
-            "res = requests." + m.toLowerCase() + "(url, auth=auth, headers=headers" +
-              (compact ? ", json=payload" : "") + ")",
-            "print(res.status_code, res.json())"]).join("\n");
+        var pythonLines = ["import requests"];
+        if (compact) pythonLines.push("import json");
+        pythonLines.push("", "url = " + q(url), "");
+        pythonLines.push(compact ? "payload = json.dumps(" + pretty(body, 0) + ")" : "payload = {}");
+        pythonLines.push("", "headers = {", "  'Authorization': " + rq(authorization) + ",",
+          "  'Content-Type': 'application/json',", "  'Accept': 'application/json'");
+        pythonLines.push("}", "", "response = requests.request(" + q(m) + ", url, headers=headers, data=payload)", "", "print(response.text)");
+        return pythonLines.join("\n");
 
       case "php":
-        return ["<?php", "$ch = curl_init(" + q(url) + ");", "curl_setopt_array($ch, [",
-          "    CURLOPT_CUSTOMREQUEST => " + q(m) + ",",
-          "    CURLOPT_RETURNTRANSFER => true,",
-          "    CURLOPT_USERPWD => " + q(key + ":" + secret) + ",",
-          '    CURLOPT_HTTPHEADER => ["Content-Type: application/json", "Accept: application/json"],']
-          .concat(compact ? ["    CURLOPT_POSTFIELDS => " + q(compact) + ","] : [])
-          .concat(["]);", "", "$response = curl_exec($ch);",
-            "echo curl_getinfo($ch, CURLINFO_HTTP_CODE), PHP_EOL, $response, PHP_EOL;",
-            "curl_close($ch);"]).join("\n");
+        return ["<?php", "", "$curl = curl_init();", "", "curl_setopt_array($curl, [",
+          "    CURLOPT_URL => " + rq(url) + ",", "    CURLOPT_RETURNTRANSFER => true,",
+          "    CURLOPT_FOLLOWLOCATION => true,", "    CURLOPT_CUSTOMREQUEST => " + rq(m) + ","]
+          .concat(compact ? ["    CURLOPT_POSTFIELDS => " + rq(compact) + ","] : [])
+          .concat(["    CURLOPT_HTTPHEADER => [", "        " + rq("Authorization: " + authorization) + ",",
+            "        'Content-Type: application/json',", "        'Accept: application/json'", "    ],", "]);", "",
+            "$response = curl_exec($curl);", "curl_close($curl);", "", "echo $response;"]).join("\n");
 
       case "ruby":
-        return ["require 'net/http'", "require 'uri'", "require 'json'", "",
-          "uri = URI.parse(" + rq(url) + ")",
-          "request = Net::HTTP::" + rubyClass(m) + ".new(uri, 'Content-Type' => 'application/json', 'Accept' => 'application/json')",
-          "request.basic_auth(" + rq(key) + ", " + rq(secret) + ")"]
+        return ["require 'uri'", "require 'net/http'", "", "url = URI(" + rq(url) + ")", "",
+          "https = Net::HTTP.new(url.host, url.port)", "https.use_ssl = true", "",
+          "request = Net::HTTP::" + rubyClass(m) + ".new(url)",
+          "request['Authorization'] = " + rq(authorization),
+          "request['Content-Type'] = 'application/json'", "request['Accept'] = 'application/json'"]
           .concat(compact ? ["request.body = " + rq(compact)] : [])
-          .concat(["",
-            "response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true) do |http|",
-            "  http.request(request)", "end", "", "puts response.code", "puts response.body"]).join("\n");
+          .concat(["", "response = https.request(request)", "puts response.read_body"]).join("\n");
 
       case "java":
-        return ["import java.net.URI;", "import java.net.http.*;", "import java.util.Base64;", "",
-          'String auth = Base64.getEncoder().encodeToString(("' + key + ":" + secret + '").getBytes());', "",
-          "HttpRequest request = HttpRequest.newBuilder()",
-          "    .uri(URI.create(" + q(url) + "))",
-          '    .header("Authorization", "Basic " + auth)',
-          '    .header("Content-Type", "application/json")',
-          '    .header("Accept", "application/json")',
-          "    " + javaVerb(m, compact), "    .build();", "",
-          "HttpResponse<String> response = HttpClient.newHttpClient()",
-          "    .send(request, HttpResponse.BodyHandlers.ofString());", "",
-          "System.out.println(response.statusCode());",
-          "System.out.println(response.body());"].join("\n");
+        var javaLines = ["import java.net.URI;", "import java.net.http.*;", "", "public class Main {",
+          "  public static void main(String[] args) throws Exception {", "    HttpRequest request = HttpRequest.newBuilder()",
+          "        .uri(URI.create(" + q(url) + "))",
+          "        .header(\"Authorization\", " + q(authorization) + ")",
+          '        .header("Content-Type", "application/json")',
+          '        .header("Accept", "application/json")'];
+        return javaLines.concat([
+          "        " + javaVerb(m, compact), "        .build();", "",
+          "    HttpResponse<String> response = HttpClient.newHttpClient()",
+          "        .send(request, HttpResponse.BodyHandlers.ofString());", "", "    System.out.println(response.body());",
+          "  }", "}"]).join("\n");
 
       case "go":
-        return ["package main", "", "import (", '\t"fmt"', '\t"io"', '\t"net/http"',
-          compact ? '\t"strings"' : "", ")", "", "func main() {",
-          compact ? "\tbody := strings.NewReader(" + gq(compact) + ")" : "",
-          "\treq, _ := http.NewRequest(" + q(m) + ", " + q(url) + ", " + (compact ? "body" : "nil") + ")",
-          "\treq.SetBasicAuth(" + q(key) + ", " + q(secret) + ")",
-          '\treq.Header.Set("Content-Type", "application/json")',
-          '\treq.Header.Set("Accept", "application/json")', "",
-          "\tres, err := http.DefaultClient.Do(req)", "\tif err != nil {", "\t\tpanic(err)", "\t}",
-          "\tdefer res.Body.Close()", "", "\tout, _ := io.ReadAll(res.Body)",
-          "\tfmt.Println(res.StatusCode, string(out))", "}"]
-          .filter(function (l) { return l !== ""; }).join("\n");
+        var goLines = ["package main", "", "import (", '\t"fmt"', '\t"io"', '\t"net/http"'];
+        if (compact) goLines.push('\t"strings"');
+        goLines.push(")", "", "func main() {");
+        if (compact) goLines.push("\tbody := strings.NewReader(" + gq(compact) + ")");
+        goLines.push("\treq, _ := http.NewRequest(" + q(m) + ", " + q(url) + ", " + (compact ? "body" : "nil") + ")");
+        goLines.push("\treq.Header.Add(\"Authorization\", " + q(authorization) + ")");
+        goLines.push('\treq.Header.Add("Content-Type", "application/json")');
+        goLines.push('\treq.Header.Add("Accept", "application/json")');
+        goLines.push("", "\tres, err := http.DefaultClient.Do(req)", "\tif err != nil {", "\t\tpanic(err)", "\t}",
+          "\tdefer res.Body.Close()", "", "\tbody, err := io.ReadAll(res.Body)",
+          "\tif err != nil {", "\t\tpanic(err)", "\t}", "\tfmt.Println(string(body))", "}");
+        return goLines.join("\n");
     }
     return "";
   }
 
   function q(s) { return JSON.stringify(String(s)); }
+  function shq(s) { return "'" + String(s).replace(/'/g, "'\"'\"'") + "'"; }
   function rq(s) { return "'" + String(s).replace(/\\/g, "\\\\").replace(/'/g, "\\'") + "'"; }
   function gq(s) { return "`" + String(s).replace(/`/g, '` + "`" + `') + "`"; }
   function rubyClass(m) { return { GET: "Get", POST: "Post", PUT: "Put", PATCH: "Patch", DELETE: "Delete" }[m] || "Get"; }
@@ -799,18 +838,12 @@
       return s.split("\n").map(function (l, i) { return i === 0 ? l : pad + l; }).join("\n");
     } catch (e) { return json; }
   }
-  function pyLit(json) {
-    try {
-      return JSON.stringify(JSON.parse(json), null, 4)
-        .replace(/\btrue\b/g, "True").replace(/\bfalse\b/g, "False").replace(/\bnull\b/g, "None");
-    } catch (e) { return json; }
-  }
-
   var SNIP_LANG = { curl: "bash", js: "javascript", node: "javascript", python: "python", php: "php", ruby: "ruby", java: "java", go: "go" };
 
   function renderOut() {
     if (!api()) return;
     var tabs = el("out-tabs"), pane = el("out-pane");
+    var readiness = requestReadiness();
 
     var right = "";
     if (state.tab === "result" && state.response && !state.response.pending && !state.response.error) {
@@ -818,7 +851,9 @@
       right = '<span class="pill ' + (ok ? "ok" : "bad") + '">' + state.response.status + "</span>" +
         '<span class="ms">' + state.response.durationMs + " ms</span>";
     } else if (state.tab === "code") {
-      right = '<select class="lang-select" id="lang-sel">' + LANGS.map(function (l) {
+      right = '<span class="pill ' + (readiness.ok ? "ok" : "bad") + '">' +
+        (readiness.ok ? "可执行" : "待填写") + '</span>' +
+        '<select class="lang-select" id="lang-sel">' + LANGS.map(function (l) {
         return '<option value="' + l.id + '"' + (l.id === state.lang ? " selected" : "") + ">" + l.label + "</option>";
       }).join("") + "</select>";
     }
@@ -829,7 +864,15 @@
       '<span class="right">' + right + "</span>";
 
     if (state.tab === "code") {
-      pane.innerHTML = codeBlock(snippet(state.lang), SNIP_LANG[state.lang]);
+      if (!readiness.ok) {
+        pane.innerHTML = '<div class="out-empty"><div class="ico">' +
+          '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">' +
+          '<path d="M12 8v5M12 16.5v.5M10.3 3.8L2.5 17.3A2 2 0 004.2 20h15.6a2 2 0 001.7-2.7L13.7 3.8a2 2 0 00-3.4 0z"/></svg></div>' +
+          '<div><strong>填写完整后生成可执行代码</strong><br>' + esc(readiness.issues.join("；")) + "</div></div>";
+      } else {
+        pane.innerHTML = '<div class="code-ready-note">已代入当前参数和凭据，请勿分享生成的代码。</div>' +
+          codeBlock(snippet(state.lang), SNIP_LANG[state.lang]);
+      }
     } else if (!state.response) {
       pane.innerHTML = '<div class="out-empty"><div class="ico">' +
         '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">' +
@@ -875,6 +918,10 @@
 
   var HOME_ICON = '<svg viewBox="0 0 24 24" class="breadcrumb-home" aria-hidden="true">' +
     '<path fill="currentColor" d="M10 19v-5h4v5c0 .55.45 1 1 1h3c.55 0 1-.45 1-1v-7h1.7c.46 0 .68-.57.33-.87L12.67 3.6c-.38-.34-.96-.34-1.34 0l-8.36 7.53c-.34.3-.13.87.33.87H5v7c0 .55.45 1 1 1h3c.55 0 1-.45 1-1z"/></svg>';
+  var COPY_PAGE_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">' +
+    '<rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M3.5 10.5h-1A1.5 1.5 0 011 9V2.5A1.5 1.5 0 012.5 1H9a1.5 1.5 0 011.5 1.5v1"/></svg>';
+  var RUNNER_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">' +
+    '<circle cx="8" cy="8" r="6.25"/><path d="M6.5 5.25L10.75 8 6.5 10.75z" fill="currentColor" stroke="none"/></svg>';
 
   // 与原站一致：首页图标 › 各级分类 › 当前页标题；首页本身不显示面包屑
   function breadcrumbsHtml(doc) {
@@ -902,8 +949,8 @@
       '<div class="doc-head' + (r.doc.route === "" ? " no-crumbs" : "") + '">' +
       breadcrumbsHtml(r.doc) +
       '<div class="doc-head-actions">' +
-      '<button class="btn" data-act="copy-page">复制页面</button>' +
-      (r.doc.api ? '<button class="btn" data-act="toggle-runner">在线运行</button>' : "") +
+      '<button class="btn" data-act="copy-page" title="复制原始 Markdown">' + COPY_PAGE_ICON + '<span>复制页面</span></button>' +
+      (r.doc.api ? '<button class="btn" data-act="toggle-runner">' + RUNNER_ICON + '<span>在线运行</span></button>' : "") +
       "</div></div>" +
       '<div class="markdown" id="md">' + bodyHtml + "</div>";
 
@@ -915,6 +962,7 @@
     } else {
       layout.classList.remove("runner-open");
     }
+    if (state.refreshLayout) state.refreshLayout();
 
     renderToc();
     renderMenu();
@@ -932,10 +980,11 @@
     doc.querySelectorAll("[data-act]").forEach(function (n) {
       n.addEventListener("click", function () {
         var a = n.getAttribute("data-act");
-        if (a === "copy-page") copy(el("md").innerText, "页面内容");
+        if (a === "copy-page") copy(r.doc.markdown.replace(/\s+$/, "") + "\n", "Markdown");
         else if (a === "toggle-runner") {
           state.runnerOpen = !layout.classList.contains("runner-open");
           layout.classList.toggle("runner-open", state.runnerOpen);
+          if (state.refreshLayout) state.refreshLayout();
         }
       });
     });
@@ -951,18 +1000,189 @@
       : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.2 5.2l1.4 1.4M17.4 17.4l1.4 1.4M18.8 5.2l-1.4 1.4M6.6 17.4l-1.4 1.4"/></svg>';
   }
 
+  /* ================= 可调布局 ================= */
+
+  var MAIN_SAFE_WIDTH = 760;
+
+  function clamp(n, min, max) { return Math.min(max, Math.max(min, n)); }
+
+  function initResizers() {
+    var root = document.documentElement;
+    var runner = document.querySelector(".runner");
+    var runnerTop = document.querySelector(".runner-top");
+    var runnerOut = document.querySelector(".runner-out");
+
+    function remember(key, value) {
+      try { localStorage.setItem(key, String(Math.round(value))); } catch (e) { /* noop */ }
+    }
+
+    function recalled(key, fallback) {
+      try {
+        var value = Number(localStorage.getItem(key));
+        return Number.isFinite(value) && value > 0 ? value : fallback;
+      } catch (e) { return fallback; }
+    }
+
+    function cssNumber(name) {
+      return parseFloat(getComputedStyle(root).getPropertyValue(name)) || 0;
+    }
+
+    function sidebarBounds() {
+      return { min: 220, max: Math.min(420, Math.max(280, window.innerWidth * 0.32)) };
+    }
+
+    function runnerDockLimit() {
+      var sidebarWidth = window.innerWidth > 1240 ?
+        document.querySelector(".sidebar").getBoundingClientRect().width : 0;
+      var safeMax = window.innerWidth - sidebarWidth - MAIN_SAFE_WIDTH - 24;
+      var defaultWidth = window.innerWidth <= 1560 ? 440 : 480;
+      return Math.max(defaultWidth, Math.min(720, safeMax));
+    }
+
+    function runnerBounds() {
+      var max = Math.min(960, window.innerWidth * 0.68, window.innerWidth - 32);
+      return { min: 360, max: Math.max(360, max) };
+    }
+
+    function updateRunnerMode(value) {
+      var layout = el("layout");
+      if (!layout.classList.contains("runner-open") || window.innerWidth <= 820) {
+        layout.classList.remove("runner-overlay");
+        return;
+      }
+      var limit = runnerDockLimit();
+      if (!layout.classList.contains("runner-overlay") && value > limit + 1) {
+        layout.classList.add("runner-overlay");
+      } else if (layout.classList.contains("runner-overlay") && value <= limit) {
+        layout.classList.remove("runner-overlay");
+      }
+    }
+
+    function splitBounds() {
+      var topHeight = runnerTop ? runnerTop.getBoundingClientRect().height : 50;
+      var available = runner ? runner.getBoundingClientRect().height - topHeight - 262 : 520;
+      return { min: 180, max: Math.max(180, available) };
+    }
+
+    function setValue(handle, property, value, bounds) {
+      value = clamp(value, bounds.min, bounds.max);
+      root.style.setProperty(property, Math.round(value) + "px");
+      handle.setAttribute("aria-valuemin", Math.round(bounds.min));
+      handle.setAttribute("aria-valuemax", Math.round(bounds.max));
+      handle.setAttribute("aria-valuenow", Math.round(value));
+      return value;
+    }
+
+    function bind(handle, options) {
+      if (!handle) return;
+
+      function current() { return options.measure(); }
+      function defaultValue() {
+        return typeof options.defaultValue === "function" ? options.defaultValue() : options.defaultValue;
+      }
+      function apply(value) {
+        var bounds = options.bounds();
+        value = clamp(value, bounds.min, bounds.max);
+        if (options.beforeApply) options.beforeApply(value);
+        return setValue(handle, options.property, value, bounds);
+      }
+      function finish(value) { remember(options.storage, apply(value)); }
+
+      handle.addEventListener("pointerdown", function (ev) {
+        if (ev.isPrimary === false) return;
+        ev.preventDefault();
+        var startPoint = options.axis === "x" ? ev.clientX : ev.clientY;
+        var startValue = current();
+        var bodyClass = options.axis === "x" ? "resize-col" : "resize-row";
+        handle.classList.add("active");
+        document.body.classList.add(bodyClass);
+        if (handle.setPointerCapture) handle.setPointerCapture(ev.pointerId);
+
+        function move(moveEvent) {
+          var point = options.axis === "x" ? moveEvent.clientX : moveEvent.clientY;
+          apply(startValue + (point - startPoint) * options.direction);
+        }
+        function end(endEvent) {
+          window.removeEventListener("pointermove", move);
+          window.removeEventListener("pointerup", end);
+          window.removeEventListener("pointercancel", end);
+          handle.classList.remove("active");
+          document.body.classList.remove(bodyClass);
+          if (handle.releasePointerCapture && handle.hasPointerCapture(endEvent.pointerId)) {
+            handle.releasePointerCapture(endEvent.pointerId);
+          }
+          finish(current());
+        }
+        window.addEventListener("pointermove", move);
+        window.addEventListener("pointerup", end);
+        window.addEventListener("pointercancel", end);
+      });
+
+      handle.addEventListener("keydown", function (ev) {
+        var physical = 0;
+        if (options.axis === "x" && ev.key === "ArrowLeft") physical = -10;
+        if (options.axis === "x" && ev.key === "ArrowRight") physical = 10;
+        if (options.axis === "y" && ev.key === "ArrowUp") physical = -12;
+        if (options.axis === "y" && ev.key === "ArrowDown") physical = 12;
+        if (!physical) return;
+        ev.preventDefault();
+        finish(current() + physical * options.direction);
+      });
+
+      handle.addEventListener("dblclick", function () { finish(defaultValue()); });
+      apply(recalled(options.storage, defaultValue()));
+      options.refresh = function () { apply(cssNumber(options.property) || current()); };
+    }
+
+    var configs = [
+      {
+        handle: el("resize-sidebar"), property: "--sidebar-w", storage: "jsj_sidebar_w",
+        axis: "x", direction: 1, defaultValue: 280, bounds: sidebarBounds,
+        measure: function () { return document.querySelector(".sidebar").getBoundingClientRect().width; },
+      },
+      {
+        handle: el("resize-runner"), property: "--runner-w", storage: "jsj_runner_w",
+        axis: "x", direction: -1,
+        defaultValue: function () { return window.innerWidth <= 1560 ? 440 : 480; },
+        bounds: runnerBounds,
+        beforeApply: updateRunnerMode,
+        measure: function () { return runner.getBoundingClientRect().width; },
+      },
+      {
+        handle: el("resize-runner-split"), property: "--runner-out-h", storage: "jsj_runner_out_h",
+        axis: "y", direction: -1, defaultValue: 344, bounds: splitBounds,
+        measure: function () { return runnerOut.getBoundingClientRect().height; },
+      },
+    ];
+
+    configs.forEach(function (config) { bind(config.handle, config); });
+    function refreshAll() {
+      configs.forEach(function (config) { if (config.refresh) config.refresh(); });
+    }
+    state.refreshLayout = refreshAll;
+    refreshAll();
+    window.addEventListener("resize", refreshAll);
+  }
+
   /* ================= 启动 ================= */
 
   function init() {
     var th = "light";
     try { th = localStorage.getItem("jsj_theme") || "light"; } catch (e) { /* noop */ }
     applyTheme(th);
+    initResizers();
     el("btn-theme").addEventListener("click", function () {
       applyTheme(document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark");
     });
     el("btn-close-runner").addEventListener("click", function () {
       state.runnerOpen = false;
-      el("layout").classList.remove("runner-open");
+      el("layout").classList.remove("runner-open", "runner-overlay");
+      if (state.refreshLayout) state.refreshLayout();
+    });
+    el("runner-backdrop").addEventListener("click", function () {
+      state.runnerOpen = false;
+      el("layout").classList.remove("runner-open", "runner-overlay");
+      if (state.refreshLayout) state.refreshLayout();
     });
 
     var search = el("search");
