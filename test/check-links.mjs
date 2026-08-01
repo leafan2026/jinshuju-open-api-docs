@@ -1,0 +1,104 @@
+/**
+ * 正文里的链接与图片：地址是否落在 Hash 路由上、目标页是否真实存在、
+ * 图片文件是否真的存在、恶意协议是否被拦。
+ *
+ *   node test/check-links.mjs        # 需要先 npm run data 生成 site.json
+ *
+ * 做法是把 public/app.js 里那段地址处理函数原样抽出来跑，测的是真代码，
+ * 不是这里重写一遍的逻辑。
+ */
+import fs from "node:fs";
+
+const appSrc = fs.readFileSync("public/app.js", "utf8");
+const start = appSrc.indexOf("var NAMED_ENTITY");
+const end = appSrc.indexOf("/* ================= Markdown");
+if (start === -1 || end === -1) {
+  console.error("✗ 找不到 public/app.js 里的地址处理函数区块（NAMED_ENTITY … Markdown 之间）");
+  process.exit(1);
+}
+const block = appSrc.slice(start, end);
+
+const site = JSON.parse(fs.readFileSync("src/data/site.json", "utf8"));
+const routes = new Set(Object.keys(site.docs));
+
+// 模拟「部署在子路径 + 资源在 CDN 上」——这是最容易出错的组合，
+// 线上就踩过一次：图片用站点路径去拼，结果落到 worker 兜底页返回 HTML。
+const SITE = "/jinshuju-open-api-docs/";
+const ASSET_BASE = "https://static.example.net/assets/lf/jinshuju-open-api-docs/v1/";
+const state = { docs: site.docs };
+const { safeLinkHref, safeImgSrc } = new Function(
+  "SITE", "ASSET_BASE", "state", block + "\nreturn { safeLinkHref, safeImgSrc };"
+)(SITE, ASSET_BASE, state);
+
+const results = [];
+function check(ok, name, detail) {
+  results.push({ ok: !!ok, name });
+  console.log(`  ${ok ? "✓" : "✗"} ${name}${ok ? "" : "\n      " + detail}`);
+}
+
+// ---- 收集正文里的链接和图片 ----
+const linkRe = /(!?)\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+const links = [];
+for (const [route, doc] of Object.entries(site.docs)) {
+  let m;
+  const md = String(doc.markdown || "");
+  while ((m = linkRe.exec(md)) !== null) links.push({ page: route, isImg: m[1] === "!", target: m[3] });
+}
+
+console.log("内部文档链接：");
+const internalLinks = links.filter((l) => !l.isImg && !/^(https?:|mailto:|tel:|#)/i.test(l.target));
+for (const l of internalLinks) {
+  const href = safeLinkHref(l.target);
+  const route = String(href).replace(/^#\//, "").split("#")[0];
+  check(routes.has(route), `${l.target} → ${href}`, `目标页 "${route}" 不在 site.json 里（出现在 ${l.page}）`);
+}
+if (!internalLinks.length) console.log("  （没有需要改写的内部链接）");
+
+console.log("内部图片：");
+const internalImgs = links.filter((l) => l.isImg && !/^(https?:|data:)/i.test(l.target));
+for (const l of internalImgs) {
+  const src = String(safeImgSrc(l.target));
+  check(src.startsWith(ASSET_BASE), `${l.target} 用资源基地址而不是站点路径`,
+    `得到 ${src}，应以 ${ASSET_BASE} 开头（用 SITE 拼会落到 worker 兜底页）`);
+  const local = src.replace(ASSET_BASE, "public/");
+  check(fs.existsSync(local), `${l.target} → ${src}`, `本地文件不存在：${local}（出现在 ${l.page}）`);
+}
+if (!internalImgs.length) console.log("  （没有需要改写的内部图片）");
+
+console.log("锚点改写（docsify 的 ?id= 要变成 hash 片段）：");
+const withAnchor = internalLinks.filter((l) => l.target.includes("?id="));
+for (const l of withAnchor) {
+  const href = String(safeLinkHref(l.target));
+  const want = decodeURIComponent(l.target.split("?id=")[1]);
+  check(href.endsWith("#" + want), `${l.target} → ${href}`, `片段应为 #${want}`);
+}
+if (!withAnchor.length) console.log("  （数据里暂时没有 ?id= 写法）");
+
+console.log("恶意协议必须被拦（返回 null，退化成纯文本）：");
+for (const a of [
+  "javascript:alert(1)",
+  "JavaScript:alert(1)",
+  "javascript&#58;alert(1)",
+  "javascript&#x3a;alert(1)",
+  "java\tscript:alert(1)",
+  " javascript:alert(1)",
+  "vbscript:msgbox(1)",
+  "data:text/html,<script>alert(1)</script>",
+]) {
+  check(safeLinkHref(a) === null, JSON.stringify(a), `没拦住，返回了 ${JSON.stringify(safeLinkHref(a))}`);
+}
+
+console.log("正常协议必须放行：");
+for (const a of ["https://jinshuju.net", "http://example.com/x", "mailto:a@b.com", "tel:123", "#anchor"]) {
+  check(safeLinkHref(a) !== null, a, "被误拦了");
+}
+
+console.log("图片协议：");
+check(safeImgSrc("data:text/html,x") === null, "data:text/html 被拦", "没拦住");
+check(safeImgSrc("data:image/png;base64,AAA") !== null, "data:image/png 放行", "被误拦");
+check(safeImgSrc("https://help-assets.jinshuju.net/a.png") !== null, "外部 https 图片放行", "被误拦");
+check(String(safeImgSrc("img/a.png")).startsWith(ASSET_BASE), "相对图片拼上资源基地址", `得到 ${safeImgSrc("img/a.png")}`);
+
+const failed = results.filter((x) => !x.ok);
+console.log(`  —— ${results.length} 项，失败 ${failed.length} 项`);
+process.exit(failed.length === 0 ? 0 : 1);

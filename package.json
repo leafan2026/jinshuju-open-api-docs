@@ -8,7 +8,8 @@
     "data": "node --experimental-strip-types scripts/build-data.mjs",
     "build": "node scripts/build.mjs",
     "preview": "npx --yes serve dist",
-    "deploy:wdl": "node --experimental-strip-types scripts/build-data.mjs && wdl deploy ."
+    "deploy:wdl": "node --experimental-strip-types scripts/build-data.mjs && wdl deploy .",
+    "test": "node test/run-all.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.0.0",

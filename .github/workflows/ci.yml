@@ -1,0 +1,54 @@
+# 构建 + 跑检查。不做部署——控制面 admin-run.jinapp.net 只放行特定来源，
+# GitHub 的构建机在境外公网会被前置代理挡掉（403 liteproxy），
+# 所以部署仍然手动跑（见 README）。
+#
+# 正文内容不在本仓库，而在 leafan2026/open-doc（公开仓库）；
+# site.json 和 public/img 都是构建产物、不进版本控制，所以每次都要重新生成。
+
+name: 构建与检查
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 取本仓库
+        uses: actions/checkout@v4
+
+      - name: 取文档内容源
+        uses: actions/checkout@v4
+        with:
+          repository: leafan2026/open-doc
+          ref: master
+          path: open-doc
+
+      - name: 装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: 装依赖
+        run: npm ci
+
+      # test/check-snippets.mjs 会真的执行生成的 Python 代码
+      - name: 装 Python requests
+        run: python3 -m pip install --quiet requests
+
+      - name: 生成站点数据
+        run: npm run data -- ./open-doc
+
+      # 链接/图片/协议、生成的 cURL 与 Python 真实执行、/_proxy 安全用例
+      - name: 跑检查
+        run: npm test
+
+      - name: 静态构建
+        run: node scripts/build-static.mjs

@@ -79,8 +79,29 @@ h1/h2/h3 的字号与间距、h2 上方分隔线、表格圆角行高、代码�
 │   ├── app.css
 │   ├── app.js                # 前端（原生 JS，无框架、无打包）
 │   └── img/                  # 从 open-doc 复制来的图片，生成物
+├── test/
+│   ├── run-all.mjs           # npm test 入口
+│   ├── check-links.mjs       # 链接 / 图片 / 协议白名单
+│   ├── check-snippets.mjs    # 生成的 cURL 与 Python 真的执行一遍
+│   ├── check-proxy.mjs       # /_proxy 安全用例
+│   └── mock-upstream.mjs     # 假上游，测试不碰线上
 └── wrangler.jsonc            # 只在用 WDL 部署时需要
 ```
+
+## 检查
+
+```bash
+npm run data -- ../open-doc     # 先生成数据
+npm test                        # 三组检查，只连本机
+```
+
+`npm test` 会自己起假上游和 `wrangler dev`（用 `--var` 把上游指到本机），
+所以要求 `8788` / `8799` 两个端口空闲。它盯的是这些真实踩过的坑：
+
+- cURL 少了 `--request`，PATCH 被当 POST 发、DELETE 退化成 GET
+- Python 里出现 JSON 的 `true/false/null`，一运行就 `NameError`
+- 正文相对链接跳出 Hash 路由、图片用站点路径拼导致返回 HTML
+- `javascript:` 与 HTML 实体绕过、`/_proxy` 的路径逃逸与跨站调用
 
 ## 部署
 
@@ -116,26 +137,29 @@ npm run preview                 # 本地起服务器看 dist/
 
 ### WDL Worker
 
-**推送到 `main` 会自动部署**，见 `.github/workflows/deploy.yml`：
-CI 里会 clone `leafan2026/open-doc`（公开）重新生成数据，再 `wdl deploy .`。
-只需要在仓库 Settings → Secrets and variables → Actions 里配一个 secret：
-
-| Secret | 说明 |
-| --- | --- |
-| `ADMIN_TOKEN` | WDL 控制面的租户 token |
-
-`WDL_NS`（`lf`）和 `CONTROL_URL` 不敏感，直接写在 workflow 里。
-
-手动部署：
+部署是手动的。**不要指望 CI 帮你部署**——控制面 `admin-run.jinapp.net` 前面那层代理
+只放行特定来源，GitHub 的构建机在境外公网会被挡掉（`403 liteproxy`），
+所以 `.github/workflows/ci.yml` 只做构建和检查，不碰部署。
 
 ```bash
-npm install -g @wdl-dev/cli
-export WDL_NS=lf ADMIN_TOKEN=<租户 token> CONTROL_URL=https://admin-run.jinapp.net
+npm install -g @wdl-dev/cli          # 或者用仓库里的 node_modules/.bin/wdl
+
+# 一次性把 token 存进本地凭据库（~/.config/wdl/credentials），之后不用再传
+wdl token set --ns lf --control-url https://admin-run.jinapp.net --default
+
 npm run deploy:wdl                   # 会先重新生成数据，需要本地有 ../open-doc
 wdl deploy .                         # 数据已经生成好了就用这个
 ```
 
+也可以每次用环境变量传：`WDL_NS=lf ADMIN_TOKEN=<token> CONTROL_URL=https://admin-run.jinapp.net`。
+
 其他命令：`wdl whoami` / `wdl workers` / `wdl tail jinshuju-open-api-docs`。
+
+> **静态资源在 CDN 上，不在站点路径下。** WDL 把 `public/` 上传到
+> `static.run.jinapp.net/assets/<ns>/<worker>/<版本>/`，站点路径下并没有这些文件。
+> 所以正文图片必须用 `<html data-asset-base>` 里的基地址去拼——
+> 用 `location.pathname` 拼会落到 worker 的兜底页面，返回一篇 HTML 而不是图片。
+> 本地 `wrangler dev` 会自己伺服 `public/`，所以这个错在本地是看不出来的。
 
 ## 在线运行怎么走的
 
