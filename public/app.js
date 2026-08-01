@@ -414,37 +414,22 @@
     return { ok: issues.length === 0, issues: issues };
   }
 
-  function paramDescHtml(desc) {
-    var source = String(desc || "").replace(/\]\(\/([^)\s]+)\)/g, "](#/$1)");
-    return inlineMd(source);
-  }
-
-  function paramHelpButtonHtml(id) {
-    return '<button class="param-help-toggle" type="button" data-param-help="' + id + '"' +
-      ' aria-expanded="false" aria-controls="' + id + '">' +
+  function paramHelpButtonHtml() {
+    return '<button class="doc-jump" type="button" data-doc-jump="Request" title="定位正文 Request">' +
       '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">' +
       '<path d="M3 2.5h7.25A1.75 1.75 0 0 1 12 4.25V13H4.75A1.75 1.75 0 0 0 3 14.75V2.5Z"/>' +
       '<path d="M3 12.75h7.25M6 5.5h3.5M6 8h3.5"/></svg>' +
-      '<span>参数说明</span><span class="param-help-chevron" aria-hidden="true">⌄</span></button>';
+      '<span>参数说明</span><span aria-hidden="true">↗</span></button>';
   }
 
-  function paramHelpPanelHtml(id, kind, params) {
-    if (!params || !params.length) return "";
-    var intro = kind === "body"
-      ? "请求体使用 application/json，字段格式如下。"
-      : "以下参数会编码到请求 URL 的查询字符串中。";
-    return '<div class="param-help-panel" id="' + id + '" hidden>' +
-      '<div class="param-help-intro">' + intro + "</div>" +
-      '<div class="param-help-list">' + params.map(function (p) {
-        return '<div class="param-help-item">' +
-          '<div class="param-help-meta"><code>' + esc(p.name) + "</code>" +
-          '<span class="param-help-type">' + esc(p.type || "String") + "</span>" +
-          '<span class="param-help-required ' + (p.required ? "is-required" : "") + '">' +
-          (p.required ? "必填" : "选填") + "</span></div>" +
-          '<div class="param-help-desc">' + paramDescHtml(p.desc || "暂无说明") + "</div></div>";
-      }).join("") + "</div>" +
-      '<button class="param-doc-link" type="button" data-param-doc>' +
-      '定位正文 Request <span aria-hidden="true">→</span></button></div>';
+  function scrollToDocHeading(name) {
+    var item = tocItems.find(function (entry) {
+      return entry.text.trim().toLowerCase() === String(name).trim().toLowerCase();
+    });
+    var target = item ? document.getElementById(item.id) : null;
+    if (!target) return false;
+    el("main").scrollTo({ top: target.offsetTop - 16, behavior: "smooth" });
+    return true;
   }
 
   function renderRunner() {
@@ -490,8 +475,7 @@
 
     if (a.queryParams.length) {
       html += '<div class="rgroup"><div class="rgroup-head"><h3>Query 参数</h3>' +
-        paramHelpButtonHtml("query-param-help") + "</div>" +
-        paramHelpPanelHtml("query-param-help", "query", a.queryParams) + a.queryParams.map(function (p) {
+        paramHelpButtonHtml() + "</div>" + a.queryParams.map(function (p) {
         return '<div class="frow"><label title="' + esc(p.name) + '">' + esc(p.name) +
           (p.required ? '<span class="star">*</span>' : "") + "</label>" +
           '<input class="ipt" data-qp="' + esc(p.name) + '" placeholder="可选"></div>';
@@ -501,16 +485,15 @@
     if (!canRun) {
       html += '<div class="rgroup"><div class="rgroup-head"><h3>Body <span class="note">' +
         esc(a.contentType) + "</span></h3>" +
-        (a.bodyParams && a.bodyParams.length ? paramHelpButtonHtml("body-param-help") : "") + "</div>" +
-        paramHelpPanelHtml("body-param-help", "body", a.bodyParams || []) +
+        (a.bodyParams && a.bodyParams.length ? paramHelpButtonHtml() : "") + "</div>" +
         '<div class="hint-box">该接口是文件上传（multipart/form-data），在线运行暂不支持；' +
         "正文「示例代码」一节给出了可直接使用的写法。</div></div>";
     } else if (["POST", "PUT", "PATCH"].indexOf(a.method) !== -1 || (a.alsoMethods || []).length) {
       var init = a.requestExample || "{\n  \n}";
       try { init = JSON.stringify(JSON.parse(init), null, 2); } catch (err) { /* 保留 */ }
       html += '<div class="rgroup"><div class="rgroup-head"><h3>Body <span class="note">application/json</span></h3>' +
-        (a.bodyParams && a.bodyParams.length ? paramHelpButtonHtml("body-param-help") : "") + "</div>" +
-        paramHelpPanelHtml("body-param-help", "body", a.bodyParams || []) + jsonEditorHtml(init) + "</div>";
+        (a.bodyParams && a.bodyParams.length ? paramHelpButtonHtml() : "") + "</div>" +
+        jsonEditorHtml(init) + "</div>";
     }
 
     wrap.innerHTML = html;
@@ -528,23 +511,11 @@
     wrap.querySelectorAll("[data-pp],[data-qp]").forEach(function (n) {
       n.addEventListener("input", function () { syncUrl(); if (state.tab === "code") renderOut(); });
     });
-    wrap.querySelectorAll("[data-param-help]").forEach(function (btn) {
+    wrap.querySelectorAll("[data-doc-jump]").forEach(function (btn) {
       btn.addEventListener("click", function () {
-        var panel = el(btn.getAttribute("data-param-help"));
-        if (!panel) return;
-        var open = panel.hidden;
-        panel.hidden = !open;
-        btn.setAttribute("aria-expanded", String(open));
-        btn.classList.toggle("on", open);
-      });
-    });
-    wrap.querySelectorAll("[data-param-doc]").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        var request = tocItems.find(function (item) { return /^request$/i.test(item.text.trim()); });
-        var target = request ? document.getElementById(request.id) : null;
-        if (!target) { toast("正文中未找到 Request"); return; }
-        el("main").scrollTo({ top: target.offsetTop - 16, behavior: "smooth" });
-        toast("已定位到正文 Request");
+        var heading = btn.getAttribute("data-doc-jump");
+        if (!scrollToDocHeading(heading)) { toast("正文中未找到 " + heading); return; }
+        toast("已定位到正文 " + heading);
       });
     });
     var ms = el("in-method");
@@ -600,20 +571,26 @@
     function paint() {
       var src = ta.value;
       hl.firstChild.innerHTML = hlJson(src) + "\n";
-      var n = src.split("\n").length, nums = "";
-      for (var i = 1; i <= n; i++) nums += i + "\n";
-      gutter.textContent = nums;
       var t = src.trim();
+      var errorInfo = null;
       if (!t) { status.className = "jsed-status"; status.textContent = "空"; status.title = "空"; }
       else {
         try {
-          JSON.parse(t); status.className = "jsed-status ok"; status.textContent = "JSON 合法";
+          JSON.parse(src); status.className = "jsed-status ok"; status.textContent = "JSON 合法";
           status.title = "JSON 合法";
         } catch (err) {
-          var message = describeJsonError(err, src);
-          status.className = "jsed-status bad"; status.textContent = message; status.title = message;
+          errorInfo = jsonErrorInfo(err, src);
+          status.className = "jsed-status bad"; status.textContent = "格式错误";
+          status.title = errorInfo.detail;
         }
       }
+      var n = src.split("\n").length, nums = "";
+      for (var i = 1; i <= n; i++) {
+        var bad = errorInfo && errorInfo.line === i;
+        nums += '<span class="jsed-line' + (bad ? " has-error" : "") + '"' +
+          (bad ? ' title="' + esc(errorInfo.detail) + '"' : "") + ">" + i + "</span>";
+      }
+      gutter.innerHTML = nums;
       sync();
     }
     function sync() {
@@ -687,17 +664,26 @@
     paint();
   }
 
-  function describeJsonError(err, src) {
+  function jsonErrorInfo(err, src) {
     var msg = String(err.message || err);
-    var pos = msg.match(/position (\d+)/);
+    var line = 1, col = null;
+    var pos = msg.match(/position\s+(\d+)/i);
     if (pos) {
       var idx = +pos[1], before = src.slice(0, idx);
-      var line = before.split("\n").length, col = idx - before.lastIndexOf("\n");
-      return "第 " + line + " 行第 " + col + " 列: " +
-        msg.replace(/\s*in JSON at position.*$/, "").replace(/^JSON\.parse:\s*/, "");
+      line = before.split("\n").length;
+      col = idx - before.lastIndexOf("\n");
+    } else {
+      var ln = msg.match(/line\s+(\d+)/i);
+      var cn = msg.match(/column\s+(\d+)/i);
+      if (ln) line = +ln[1];
+      if (cn) col = +cn[1];
     }
-    var ln = msg.match(/line (\d+)/);
-    return ln ? "第 " + ln[1] + " 行: " + msg : msg;
+    var prefix = "第 " + line + " 行" + (col ? "第 " + col + " 列" : "");
+    return {
+      line: line,
+      column: col,
+      detail: prefix + ": " + msg.replace(/\s*in JSON at position.*$/, "").replace(/^JSON\.parse:\s*/, ""),
+    };
   }
 
   /* ---------- 发送 ---------- */
@@ -911,7 +897,11 @@
     var right = "";
     if (state.tab === "result" && state.response && !state.response.pending && !state.response.error) {
       var ok = state.response.status >= 200 && state.response.status < 300;
-      right = '<span class="pill ' + (ok ? "ok" : "bad") + '">' + state.response.status + "</span>" +
+      right = ok
+        ? '<span class="pill ok">' + state.response.status + "</span>"
+        : '<button class="pill bad status-doc-jump" type="button" title="查看正文状态码说明">' +
+          state.response.status + "</button>";
+      right +=
         '<span class="ms">' + state.response.durationMs + " ms</span>";
     } else if (state.tab === "code") {
       right = '<span class="pill ' + (readiness.ok ? "ok" : "bad") + '">' +
@@ -956,6 +946,13 @@
     });
     var sel = el("lang-sel");
     if (sel) sel.addEventListener("change", function () { state.lang = sel.value; renderOut(); });
+    var statusJump = tabs.querySelector(".status-doc-jump");
+    if (statusJump) statusJump.addEventListener("click", function () {
+      if (!scrollToDocHeading("状态码") && !scrollToDocHeading("Response")) {
+        toast("正文中未找到状态码说明"); return;
+      }
+      toast("已定位到正文状态码");
+    });
     bindCopy(pane);
   }
 
