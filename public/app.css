@@ -495,6 +495,11 @@ body.resize-col .layout { transition: none; }
   font: 450 87.5%/1.4 var(--font-mono);
   padding: 0.15em 0.35em;
   vertical-align: middle;
+  /* 正文里有整条带签名的长 URL，没有空格可断，会撑破容器压到「本页总览」上 */
+  overflow-wrap: anywhere;
+  /* 断行后每段都保留自己的圆角和左右内边距，看起来是连贯的一串，不是断开的两块 */
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 .markdown a code {
   background: var(--gd-accent-softer);

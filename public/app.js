@@ -1628,9 +1628,11 @@
     // 签名针对未编码的原始值；URL 里的值才做转义
     var signBase = pairs.map(function (p) { return p.key + "=" + p.value; }).join("&");
     var query = pairs.map(function (p) { return p.key + "=" + encodeURIComponent(p.value); }).join("&");
+    // 值一个都还没填时，别把 ?field_1=&field_2= 这种半截 query 拼进链接
+    var anyValue = pairs.some(function (p) { return p.value !== ""; });
     if (!pairs.length || !secret) {
       done({ pairs: pairs, signBase: signBase, reordered: reordered, token: token, secret: secret,
-        url: FORM_BASE + shownToken + (query ? "?" + query : "") });
+        url: FORM_BASE + shownToken + (anyValue ? "?" + query : "") });
       return;
     }
     signParams(secret, signBase).then(function (sign) {
