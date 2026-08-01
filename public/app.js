@@ -36,6 +36,7 @@
     creds: { key: "", secret: "" },
     tab: "result",
     lang: "curl",
+    utLang: "python", // URL 传参生成器的语言
     response: null,
     sending: false,
     abort: null,
@@ -105,15 +106,21 @@
     php: "php", go: "go", jsonc: "jsonc", yaml: "yaml", ts: "typescript", csharp: "csharp",
   };
 
+  // 复制按钮拿的是原文，不是高亮后的 HTML；bindCopy 取走后就从 store 删掉
+  function stashCopy(src) {
+    var id = "cb" + (codeBlock._n = (codeBlock._n || 0) + 1);
+    codeBlock.store = codeBlock.store || {};
+    codeBlock.store[id] = src;
+    return id;
+  }
+
   function codeBlock(src, lang, opts) {
     opts = opts || {};
     src = String(src == null ? "" : src).replace(/\s+$/, "");
     var isJson = lang === "json" || lang === "jsonc" || (!lang && /^\s*[[{]/.test(src));
     var body = isJson ? hlJson(src) : hlGeneric(src);
     var label = LANG_LABEL[lang] || lang || "text";
-    var id = "cb" + (codeBlock._n = (codeBlock._n || 0) + 1);
-    codeBlock.store = codeBlock.store || {};
-    codeBlock.store[id] = src;
+    var id = stashCopy(src);
     return '<div class="code-block">' +
       '<div class="code-block-head"><span>' + esc(label) + '</span><span class="grow"></span>' +
       (opts.noCopy ? "" : '<button class="mini" data-copy="' + id + '">复制</button>') +
@@ -1189,24 +1196,268 @@
     });
   }
 
+  var UT_LANGS = [
+    { id: "shell", label: "Shell", hl: "bash" },
+    { id: "python", label: "Python", hl: "python" },
+    { id: "node", label: "Node.js", hl: "javascript" },
+    { id: "php", label: "PHP", hl: "php" },
+    { id: "ruby", label: "Ruby", hl: "ruby" },
+  ];
+
+  var ICON_TRASH = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" ' +
+    'stroke-width="1.5" stroke-linecap="round" aria-hidden="true">' +
+    '<path d="M2.5 4.5h11M6 4.5V3a.5.5 0 01.5-.5h3a.5.5 0 01.5.5v1.5M4 4.5l.6 8a1 1 0 001 .9h4.8a1 1 0 001-.9l.6-8"/>' +
+    '<path d="M6.5 7v4M9.5 7v4"/></svg>';
+
   function urlToolHtml(cfg, id) {
     return '<h2 id="' + id + '">' + esc(cfg.title) + "</h2>" +
       '<div class="urltool" id="urltool">' +
-      '<div class="urltool-grid">' +
-      '<label>表单 Token</label>' +
-      '<input class="ipt" id="ut-token" type="text" placeholder="表单链接 /f/ 后面那串" autocomplete="off">' +
-      "<label>sign_secret</label>" +
-      '<input class="ipt" id="ut-secret" type="password" placeholder="' + esc(cfg.secretHint) + '" autocomplete="off">' +
+      '<div class="urltool-top">' +
+      '<div class="urltool-field"><label for="ut-token">表单 Token</label>' +
+      '<input class="ipt mono" id="ut-token" type="text" placeholder="粘贴表单链接或 /f/ 后面那串" autocomplete="off"></div>' +
+      '<div class="urltool-field"><label for="ut-secret">sign_secret</label>' +
+      '<input class="ipt mono" id="ut-secret" type="password" placeholder="企业密钥，只在本机计算" autocomplete="off"></div>' +
       "</div>" +
-      '<div class="urltool-rows-head"><span>' + esc(cfg.rowHint) + "</span>" +
-      '<button class="mini" id="ut-add">添加一行</button></div>' +
-      '<div class="urltool-rows" id="ut-rows"></div>' +
+      '<div class="urltool-section"><span>' + esc(cfg.rowHint) +
+      '<span class="hint">' + esc(cfg.rowNote) + "</span></span>" +
+      '<div id="ut-rows"></div>' +
+      '<button class="urltool-add" id="ut-add" type="button">+ 添加字段</button></div>' +
       '<div class="urltool-out" id="ut-out"></div>' +
+      '<div class="urltool-section">' +
+      '<div class="urltool-res-head"><span>生成代码</span>' +
+      '<span class="note">密钥务必留在服务端</span>' +
+      '<select class="lang-select" id="ut-lang">' +
+      UT_LANGS.map(function (l) {
+        return '<option value="' + l.id + '"' + (l.id === state.utLang ? " selected" : "") + ">" + l.label + "</option>";
+      }).join("") + "</select></div>" +
+      '<div id="ut-code"></div></div>' +
       "</div>";
   }
 
+  /* ---------- 生成代码：都封装成一个可直接搬走的函数 ---------- */
+
+  // 各语言的映射字面量。缩进两级（函数调用实参里），跟模板里的排版对齐
+  function mapLiteral(lang, pairs) {
+    var wrap = { python: ["{", "}"], node: ["{", "}"], php: ["[", "]"], ruby: ["{", "}"] }[lang];
+    if (!wrap) return ""; // shell 直接拼字符串，用不到映射字面量
+    if (!pairs.length) return wrap[0] + wrap[1];
+    var pad = "  ";
+    var body = pairs.map(function (p) {
+      switch (lang) {
+        case "python": return pad + q(p.key) + ": " + q(p.value) + ",";
+        case "node": return pad + p.key + ": " + q(p.value) + ",";
+        case "php": return pad + "  " + rq(p.key) + " => " + rq(p.value) + ",";
+        case "ruby": return pad + rq(p.key) + " => " + rq(p.value) + ",";
+        default: return "";
+      }
+    }).join("\n").replace(/,$/, "");
+    return wrap[0] + "\n" + body + "\n" + (lang === "php" ? "  " : "") + wrap[1];
+  }
+
+  function urlSnippet(lang, ctx) {
+    var token = ctx.token || "YOUR_FORM_TOKEN";
+    var secret = ctx.secret || "YOUR_SIGN_SECRET";
+    var pairs = ctx.pairs.length ? ctx.pairs : [{ key: ctx.prefix + "1", value: "" }];
+    var map = mapLiteral(lang, pairs);
+    var rawParams = pairs.map(function (p) { return p.key + "=" + p.value; }).join("&");
+    var encodedParams = pairs.map(function (p) {
+      return p.key + "=" + encodeURIComponent(p.value);
+    }).join("&");
+    var jsonPayload = "{" + pairs.map(function (p) { return q(p.key) + ":" + q(p.value); }).join(",") + "}";
+
+    if (ctx.jwt) {
+      switch (lang) {
+        case "shell":
+          return ["#!/usr/bin/env bash",
+            "# 把全局字段打成 JWT（HS256），输出带 cusd 的表单链接。",
+            "# 只做签名、不加密——别放私密信息。",
+            "",
+            "b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }",
+            "",
+            "build_form_url() {",
+            '  local form_token="$1" sign_secret="$2" payload_json="$3"',
+            "  local header payload signing signature",
+            `  header=$(printf '%s' '{"alg":"HS256","typ":"JWT"}' | b64url)`,
+            `  payload=$(printf '%s' "$payload_json" | b64url)`,
+            '  signing="${header}.${payload}"',
+            `  signature=$(printf '%s' "$signing" | openssl dgst -sha256 -hmac "$sign_secret" -binary | b64url)`,
+            `  printf 'https://jinshuju.net/f/%s?cusd=%s.%s\\n' "$form_token" "$signing" "$signature"`,
+            "}",
+            "",
+            "build_form_url " + shq(token) + " " + shq(secret) + " " + shq(jsonPayload)].join("\n");
+
+        case "python":
+          return ["import base64", "import hashlib", "import hmac", "import json", "",
+            "",
+            "def build_form_url(form_token, sign_secret, fields):",
+            '    """把全局字段打成 JWT（HS256），返回带 cusd 的表单链接。',
+            "",
+            "    只做签名、不加密——别放私密信息。装了 pyjwt 的话，等价于",
+            '    jwt.encode(fields, sign_secret, algorithm="HS256")。',
+            '    """',
+            "    def b64url(raw):",
+            '        return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()',
+            "",
+            '    header = b64url(json.dumps({"alg": "HS256", "typ": "JWT"}, separators=(",", ":")).encode())',
+            '    payload = b64url(json.dumps(fields, separators=(",", ":"), ensure_ascii=False).encode())',
+            '    signing = header + "." + payload',
+            "    signature = b64url(hmac.new(sign_secret.encode(), signing.encode(), hashlib.sha256).digest())",
+            '    return "https://jinshuju.net/f/%s?cusd=%s.%s" % (form_token, signing, signature)',
+            "", "",
+            "print(build_form_url(" + q(token) + ", " + q(secret) + ", " + map + "))"].join("\n");
+
+        case "node":
+          return ['const crypto = require("node:crypto");', "",
+            "/**",
+            " * 把全局字段打成 JWT（HS256），返回带 cusd 的表单链接。",
+            " * 只做签名、不加密——别放私密信息。",
+            " */",
+            "function buildFormUrl(formToken, signSecret, fields) {",
+            '  const b64url = (raw) => Buffer.from(raw).toString("base64url");',
+            '  const header = b64url(JSON.stringify({ alg: "HS256", typ: "JWT" }));',
+            "  const payload = b64url(JSON.stringify(fields));",
+            "  const signing = `${header}.${payload}`;",
+            '  const signature = crypto.createHmac("sha256", signSecret).update(signing).digest("base64url");',
+            "  return `https://jinshuju.net/f/${formToken}?cusd=${signing}.${signature}`;",
+            "}", "",
+            "console.log(buildFormUrl(" + q(token) + ", " + q(secret) + ", " + map + "));"].join("\n");
+
+        case "php":
+          return ["<?php", "",
+            "/**",
+            " * 把全局字段打成 JWT（HS256），返回带 cusd 的表单链接。",
+            " * 只做签名、不加密——别放私密信息。",
+            " */",
+            "function buildFormUrl(string $formToken, string $signSecret, array $fields): string",
+            "{",
+            "    $b64url = fn (string $raw): string => rtrim(strtr(base64_encode($raw), '+/', '-_'), '=');",
+            "    $header = $b64url(json_encode(['alg' => 'HS256', 'typ' => 'JWT']));",
+            "    $payload = $b64url(json_encode($fields, JSON_UNESCAPED_UNICODE));",
+            "    $signing = $header . '.' . $payload;",
+            "    $signature = $b64url(hash_hmac('sha256', $signing, $signSecret, true));",
+            "",
+            "    return 'https://jinshuju.net/f/' . $formToken . '?cusd=' . $signing . '.' . $signature;",
+            "}", "",
+            "echo buildFormUrl(" + rq(token) + ", " + rq(secret) + ", " + map + ");"].join("\n");
+
+        case "ruby":
+          return ["require 'base64'", "require 'json'", "require 'openssl'", "",
+            "# 把全局字段打成 JWT（HS256），返回带 cusd 的表单链接。",
+            "# 只做签名、不加密——别放私密信息。",
+            "def build_form_url(form_token, sign_secret, fields)",
+            "  b64url = ->(raw) { Base64.urlsafe_encode64(raw, padding: false) }",
+            "  header = b64url.call(JSON.generate({ alg: 'HS256', typ: 'JWT' }))",
+            "  payload = b64url.call(JSON.generate(fields))",
+            '  signing = "#{header}.#{payload}"',
+            "  signature = b64url.call(OpenSSL::HMAC.digest('sha256', sign_secret, signing))",
+            '  "https://jinshuju.net/f/#{form_token}?cusd=#{signing}.#{signature}"',
+            "end", "",
+            "puts build_form_url(" + rq(token) + ", " + rq(secret) + ", " + map + ")"].join("\n");
+      }
+      return "";
+    }
+
+    switch (lang) {
+      case "shell":
+        return ["#!/usr/bin/env bash",
+          "# 输出带 sign 的表单链接。",
+          "#",
+          "# raw 和 query 是分开传的，因为签名和链接用的不是同一份内容：",
+          "#   raw   —— 按字段 API CODE 升序排列的原始值，用来算签名（不要编码）",
+          "#   query —— 同样的字段，但值已做 URL 编码，用来拼链接",
+          "# 在 shell 里实现正确的 UTF-8 百分号编码不划算，所以 query 直接给出。",
+          "",
+          "build_form_url() {",
+          '  local form_token="$1" sign_secret="$2" raw="$3" query="$4"',
+          "  local digest sign",
+          `  digest=$(printf '%s' "$raw" | openssl dgst -sha256 -hmac "$sign_secret" | awk '{print $NF}')`,
+          "  # base64 里的 + / = 在 query 里必须转义，否则 + 会被当成空格",
+          `  sign=$(printf '%s' "$digest" | base64 | tr -d '\\n' | sed 's/+/%2B/g; s|/|%2F|g; s/=/%3D/g')`,
+          `  printf 'https://jinshuju.net/f/%s?%s&sign=%s\\n' "$form_token" "$query" "$sign"`,
+          "}", "",
+          "build_form_url " + shq(token) + " " + shq(secret) + " " + shq(rawParams) +
+            " " + shq(encodedParams)].join("\n");
+
+      case "python":
+        return ["import base64", "import hashlib", "import hmac", "from urllib.parse import quote", "",
+          "",
+          "def build_form_url(form_token, sign_secret, fields):",
+          '    """返回带 sign 的表单链接。',
+          "",
+          "    两个容易踩的点：字段必须按 API CODE 升序拼接，",
+          "    且签名针对未编码的原始值——URL 里的值才做转义。",
+          '    """',
+          "    keys = sorted(fields)",
+          '    raw = "&".join("%s=%s" % (k, fields[k]) for k in keys)',
+          "    digest = hmac.new(sign_secret.encode(), raw.encode(), hashlib.sha256).hexdigest()",
+          "    sign = base64.b64encode(digest.encode()).decode()",
+          '    query = "&".join("%s=%s" % (k, quote(str(fields[k]), safe="")) for k in keys)',
+          '    return "https://jinshuju.net/f/%s?%s&sign=%s" % (form_token, query, quote(sign, safe=""))',
+          "", "",
+          "print(build_form_url(" + q(token) + ", " + q(secret) + ", " + map + "))"].join("\n");
+
+      case "node":
+        return ['const crypto = require("node:crypto");', "",
+          "/**",
+          " * 返回带 sign 的表单链接。",
+          " * 两个容易踩的点：字段必须按 API CODE 升序拼接，",
+          " * 且签名针对未编码的原始值——URL 里的值才做转义。",
+          " */",
+          "function buildFormUrl(formToken, signSecret, fields) {",
+          "  const keys = Object.keys(fields).sort();",
+          "  const raw = keys.map((k) => `${k}=${fields[k]}`).join(\"&\");",
+          '  const digest = crypto.createHmac("sha256", signSecret).update(raw).digest("hex");',
+          '  const sign = Buffer.from(digest).toString("base64");',
+          '  const query = keys.map((k) => `${k}=${encodeURIComponent(fields[k])}`).join("&");',
+          "  return `https://jinshuju.net/f/${formToken}?${query}&sign=${encodeURIComponent(sign)}`;",
+          "}", "",
+          "console.log(buildFormUrl(" + q(token) + ", " + q(secret) + ", " + map + "));"].join("\n");
+
+      case "php":
+        return ["<?php", "",
+          "/**",
+          " * 返回带 sign 的表单链接。",
+          " * 两个容易踩的点：字段必须按 API CODE 升序拼接，",
+          " * 且签名针对未编码的原始值——URL 里的值才做转义。",
+          " */",
+          "function buildFormUrl(string $formToken, string $signSecret, array $fields): string",
+          "{",
+          "    ksort($fields);",
+          "    $raw = [];",
+          "    $query = [];",
+          "    foreach ($fields as $key => $value) {",
+          "        $raw[] = $key . '=' . $value;",
+          "        $query[] = $key . '=' . rawurlencode((string) $value);",
+          "    }",
+          "    $digest = hash_hmac('sha256', implode('&', $raw), $signSecret);",
+          "    $sign = base64_encode($digest);",
+          "",
+          "    return 'https://jinshuju.net/f/' . $formToken . '?' . implode('&', $query)",
+          "        . '&sign=' . rawurlencode($sign);",
+          "}", "",
+          "echo buildFormUrl(" + rq(token) + ", " + rq(secret) + ", " + map + ");"].join("\n");
+
+      case "ruby":
+        return ["require 'base64'", "require 'erb'", "require 'openssl'", "",
+          "# 返回带 sign 的表单链接。",
+          "# 两个容易踩的点：字段必须按 API CODE 升序拼接，",
+          "# 且签名针对未编码的原始值——URL 里的值才做转义。",
+          "def build_form_url(form_token, sign_secret, fields)",
+          "  sorted = fields.sort.to_h",
+          '  raw = sorted.map { |k, v| "#{k}=#{v}" }.join(\'&\')',
+          "  digest = OpenSSL::HMAC.hexdigest('sha256', sign_secret, raw)",
+          "  sign = Base64.strict_encode64(digest)",
+          "  # 用 ERB::Util.url_encode 而不是 encode_www_form_component：后者把空格编成 +",
+          '  query = sorted.map { |k, v| "#{k}=#{ERB::Util.url_encode(v.to_s)}" }.join(\'&\')',
+          '  "https://jinshuju.net/f/#{form_token}?#{query}&sign=#{ERB::Util.url_encode(sign)}"',
+          "end", "",
+          "puts build_form_url(" + rq(token) + ", " + rq(secret) + ", " + map + ")"].join("\n");
+    }
+    return "";
+  }
+
   function mountUrlTool(cfg) {
-    var rowsBox = el("ut-rows"), out = el("ut-out");
+    var rowsBox = el("ut-rows"), out = el("ut-out"), codeBox = el("ut-code");
     if (!rowsBox) return;
     var rows = [{ key: cfg.prefix + "1", value: "" }, { key: cfg.prefix + "2", value: "" }];
     var seq = 0;
@@ -1214,9 +1465,12 @@
     function drawRows() {
       rowsBox.innerHTML = rows.map(function (r, i) {
         return '<div class="urltool-row">' +
-          '<input class="ipt code" data-k="' + i + '" value="' + esc(r.key) + '" placeholder="' + esc(cfg.placeholder) + '" autocomplete="off">' +
-          '<input class="ipt" data-v="' + i + '" value="' + esc(r.value) + '" placeholder="要传入的值" autocomplete="off">' +
-          '<button class="mini ghost" data-del="' + i + '" title="删除这一行" aria-label="删除这一行">✕</button>' +
+          '<input class="ipt mono" data-k="' + i + '" value="' + esc(r.key) +
+          '" placeholder="' + esc(cfg.placeholder) + '" autocomplete="off" spellcheck="false">' +
+          '<input class="ipt" data-v="' + i + '" value="' + esc(r.value) +
+          '" placeholder="要传入的值" autocomplete="off">' +
+          '<button class="urltool-del" data-del="' + i + '" type="button" title="删除这一行" ' +
+          'aria-label="删除这一行">' + ICON_TRASH + "</button>" +
           "</div>";
       }).join("");
       rowsBox.querySelectorAll("[data-k]").forEach(function (n) {
@@ -1234,39 +1488,49 @@
       });
     }
 
+    // 用户手上多半是整条表单链接，粘进来就自动取出 token
+    function readToken() {
+      var raw = el("ut-token").value.trim();
+      var m = raw.match(/\/f\/([^/?#\s]+)/);
+      return m ? m[1] : raw.replace(/^https?:\/\/[^/]*\/?/, "");
+    }
+
     function update() {
-      var token = el("ut-token").value.trim();
+      var token = readToken();
       var secret = el("ut-secret").value;
       var filled = rows.filter(function (r) { return r.key.trim(); });
       var mine = ++seq; // 异步算签名，只认最后一次输入的结果
 
-      if (!filled.length) {
-        out.innerHTML = '<div class="urltool-note">填一个字段 API CODE 就能看到生成结果。</div>';
-        return;
-      }
-
-      // 升序是签名能对上的前提，这里直接按字典序排（与文档示例的 TreeMap / sorted 一致）
+      // 升序是签名能对上的前提，按字典序排（与文档示例的 TreeMap / sorted 一致）
       var sorted = filled.slice().sort(function (a, b) {
         return a.key.trim() < b.key.trim() ? -1 : a.key.trim() > b.key.trim() ? 1 : 0;
       });
       var reordered = sorted.some(function (r, i) { return r !== filled[i]; });
+      var pairs = sorted.map(function (r) { return { key: r.key.trim(), value: r.value }; });
       var shownToken = token || "YOUR_FORM_TOKEN";
+
+      drawCode(pairs, token, secret);
+
+      if (!filled.length) {
+        out.innerHTML = note("填一个字段 API CODE 就能看到生成结果。");
+        return;
+      }
 
       if (cfg.jwt) {
         var payload = {};
-        sorted.forEach(function (r) { payload[r.key.trim()] = r.value; });
+        pairs.forEach(function (p) { payload[p.key] = p.value; });
         if (!secret) {
           render(mine, [
-            block("原始数据", JSON.stringify(payload, null, 2), "json"),
+            res("原始数据", JSON.stringify(payload, null, 2), { json: true }),
             note("填入 sign_secret 后会生成 JWT 和完整链接。JWT 只签名、不加密，别放私密信息。"),
           ]);
           return;
         }
         jwtHS256(secret, payload).then(function (jwt) {
           render(mine, [
-            block("原始数据", JSON.stringify(payload, null, 2), "json"),
-            block("JWT", jwt, "text"),
-            block("表单链接", FORM_BASE + shownToken + "?cusd=" + encodeURIComponent(jwt), "text"),
+            res("原始数据", JSON.stringify(payload, null, 2), { json: true }),
+            res("JWT", jwt),
+            res("表单链接", FORM_BASE + shownToken + "?cusd=" + jwt, { primary: true }),
             token ? "" : note("填入表单 Token 才是可直接打开的链接。"),
           ]);
         });
@@ -1274,33 +1538,45 @@
       }
 
       // 签名针对未编码的原始值；最终 URL 里才做 URL 编码
-      var signBase = sorted.map(function (r) { return r.key.trim() + "=" + r.value; }).join("&");
-      var query = sorted.map(function (r) {
-        return r.key.trim() + "=" + encodeURIComponent(r.value);
-      }).join("&");
+      var signBase = pairs.map(function (p) { return p.key + "=" + p.value; }).join("&");
+      var query = pairs.map(function (p) { return p.key + "=" + encodeURIComponent(p.value); }).join("&");
 
-      var parts = [
-        block("签名用的参数串（按 API CODE 升序，值不编码）", signBase, "text"),
-        reordered ? note("你填的顺序不是升序，已自动按 API CODE 升序重排——顺序错了签名就对不上。") : "",
-      ];
+      var parts = [res("签名用的参数串", signBase, { note: "按 API CODE 升序，值不编码" })];
+      if (reordered) parts.push(note("你填的顺序不是升序，已自动重排——顺序错了签名就对不上。"));
 
       if (!secret) {
-        parts.push(block("表单链接（未签名）", FORM_BASE + shownToken + "?" + query, "text"));
+        parts.push(res("表单链接（未签名）", FORM_BASE + shownToken + "?" + query, { primary: true }));
         parts.push(note("填入 sign_secret 后会追加 sign 参数。"));
         render(mine, parts);
         return;
       }
       signParams(secret, signBase).then(function (sign) {
-        parts.push(block("sign", sign, "text"));
-        parts.push(block("表单链接", FORM_BASE + shownToken + "?" + query + "&sign=" + encodeURIComponent(sign), "text"));
+        parts.push(res("sign", sign));
+        parts.push(res("表单链接", FORM_BASE + shownToken + "?" + query + "&sign=" + encodeURIComponent(sign),
+          { primary: true }));
         if (!token) parts.push(note("填入表单 Token 才是可直接打开的链接。"));
         render(mine, parts);
       });
     }
 
-    function block(label, text, lang) {
-      return '<div class="urltool-block"><div class="urltool-label">' + esc(label) + "</div>" +
-        codeBlock(text, lang) + "</div>";
+    function drawCode(pairs, token, secret) {
+      var lang = state.utLang;
+      var meta = UT_LANGS.filter(function (l) { return l.id === lang; })[0] || UT_LANGS[0];
+      codeBox.innerHTML = codeBlock(
+        urlSnippet(lang, { token: token, secret: secret, pairs: pairs, prefix: cfg.prefix, jwt: !!cfg.jwt }),
+        meta.hl
+      );
+      bindCopy(codeBox);
+    }
+
+    function res(label, text, opts) {
+      opts = opts || {};
+      var id = stashCopy(text);
+      return '<div class="urltool-res' + (opts.primary ? " primary" : "") + '">' +
+        '<div class="urltool-res-head"><span>' + esc(label) + "</span>" +
+        (opts.note ? '<span class="note">' + esc(opts.note) + "</span>" : "") +
+        '<button class="urltool-copy" type="button" data-copy="' + id + '">复制</button></div>' +
+        '<pre class="urltool-res-body"><code>' + (opts.json ? hlJson(text) : esc(text)) + "</code></pre></div>";
     }
     function note(text) { return '<div class="urltool-note">' + esc(text) + "</div>"; }
     function render(mine, parts) {
@@ -1314,6 +1590,10 @@
     el("ut-add").addEventListener("click", function () {
       rows.push({ key: cfg.prefix + (rows.length + 1), value: "" });
       drawRows(); update();
+    });
+    el("ut-lang").addEventListener("change", function () {
+      state.utLang = el("ut-lang").value;
+      update();
     });
     drawRows();
     update();

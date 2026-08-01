@@ -10,6 +10,8 @@
  *   - JWT 用 base64url、无填充
  */
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -25,6 +27,21 @@ const block = appSrc.slice(from, to);
 const { signParams, jwtHS256, FORM_BASE } = new Function(
   block + "\nreturn { signParams, jwtHS256, FORM_BASE };"
 )();
+
+// 生成代码那部分：连同它依赖的引号工具一起抽出来
+const snipFrom = appSrc.indexOf("  var UT_LANGS = [");
+const snipTo = appSrc.indexOf("  function mountUrlTool(");
+const quoteFrom = appSrc.indexOf("  function q(s) {");
+const quoteTo = appSrc.indexOf("  // JSON 直接塞进 Python");
+if (snipFrom === -1 || snipTo === -1 || quoteFrom === -1 || quoteTo === -1) {
+  console.error("✗ 找不到 public/app.js 里的生成代码区块");
+  process.exit(1);
+}
+const { urlSnippet, UT_LANGS } = new Function(
+  "esc", "state",
+  appSrc.slice(quoteFrom, quoteTo) + appSrc.slice(snipFrom, snipTo) +
+  "\nreturn { urlSnippet, UT_LANGS };"
+)((s) => String(s), { utLang: "python" });
 
 const results = [];
 function check(ok, name, detail) {
@@ -111,6 +128,95 @@ check(JSON.stringify(mineSorted) === pySorted, "field_10 排在 field_2 之前�
   `我们的 ${JSON.stringify(mineSorted)}\n      Python ${pySorted}`);
 
 check(FORM_BASE === "https://jinshuju.net/f/", "表单链接前缀", FORM_BASE);
+
+/* ---------- 生成的代码必须真的能跑，而且算出同一个链接 ---------- */
+
+const TOKEN = "aBcDeF";
+const SECRET = "s3cr3t";
+// 故意用降序 + 中文 + 需要转义的值，把排序和编码两件事一起考到
+const PAIRS = [
+  { key: "field_5", value: "data" },
+  { key: "field_10", value: "十" },
+  { key: "field_1", value: "a b&c" },
+];
+const sortedPairs = PAIRS.slice().sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+
+// 页面自己算出来的那条链接，作为基准
+async function expectedSignUrl() {
+  const raw = sortedPairs.map((p) => `${p.key}=${p.value}`).join("&");
+  const query = sortedPairs.map((p) => `${p.key}=${encodeURIComponent(p.value)}`).join("&");
+  const sign = await signParams(SECRET, raw);
+  return `${FORM_BASE}${TOKEN}?${query}&sign=${encodeURIComponent(sign)}`;
+}
+async function expectedJwtUrl() {
+  const payload = {};
+  sortedPairs.forEach((p) => (payload[p.key] = p.value));
+  return `${FORM_BASE}${TOKEN}?cusd=${await jwtHS256(SECRET, payload)}`;
+}
+
+// 归一化成「服务端会看到的东西」：路径 + 解码后的参数
+function normalize(url) {
+  try {
+    const u = new URL(url);
+    const params = [...u.searchParams.entries()].sort();
+    return u.origin + u.pathname + "|" + JSON.stringify(params);
+  } catch {
+    return "无法解析：" + url;
+  }
+}
+
+const RUNNERS = {
+  shell: { file: "s.sh", cmd: (f) => ["/bin/bash", [f]] },
+  python: { file: "s.py", cmd: (f) => ["python3", [f]] },
+  node: { file: "s.js", cmd: (f) => [process.execPath, [f]] },
+  php: { file: "s.php", cmd: (f) => ["php", [f]] },
+  ruby: { file: "s.rb", cmd: (f) => ["ruby", [f]] },
+};
+
+async function available(lang) {
+  const [bin] = RUNNERS[lang].cmd("x");
+  if (bin === process.execPath) return true;
+  try {
+    await run(bin, ["--version"]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "jsj-urlsnip-"));
+const skipped = [];
+
+for (const jwt of [false, true]) {
+  const label = jwt ? "全局字段（JWT）" : "表单字段（sign）";
+  const want = jwt ? await expectedJwtUrl() : await expectedSignUrl();
+  console.log(`${label} 的生成代码，实际执行后与页面结果比对：`);
+  for (const lang of UT_LANGS.map((l) => l.id)) {
+    if (!(await available(lang))) {
+      skipped.push(`${lang}/${jwt ? "jwt" : "sign"}`);
+      continue;
+    }
+    const code = urlSnippet(lang, { token: TOKEN, secret: SECRET, pairs: sortedPairs, prefix: "field_", jwt });
+    const file = path.join(tmp, RUNNERS[lang].file);
+    fs.writeFileSync(file, code);
+    const [bin, args] = RUNNERS[lang].cmd(file);
+    let got = "", err = null;
+    try {
+      const r = await run(bin, args);
+      got = r.stdout.trim();
+    } catch (e) {
+      err = (e.stderr || e.message).trim().split("\n").slice(-3).join(" | ");
+    }
+    // 比服务端解出来的内容，而不是字符串字面：%20 和 + 都是合法的空格编码，
+    // 各语言标准库风格不同，只要解码后一致就算对
+    const same = !err && normalize(got) === normalize(want);
+    check(same, `${lang}`,
+      err ? `执行失败：${err}` : `生成代码输出：\n      ${got}\n      页面结果：  \n      ${want}`);
+  }
+}
+
+fs.rmSync(tmp, { recursive: true, force: true });
+if (skipped.length) console.log(`  ! 本机缺运行环境，跳过：${skipped.join("、")}（CI 里会跑）`);
 
 const failed = results.filter((x) => !x.ok);
 console.log(`  —— ${results.length} 项，失败 ${failed.length} 项`);

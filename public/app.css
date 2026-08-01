@@ -322,62 +322,113 @@ body.resize-col .layout { transition: none; }
 
 /* ---- URL 传参生成器（正文内嵌） ---- */
 
+/* 只有最外层一道边框，内部靠背景深浅和间距分层——别再套一层卡片 */
 .urltool {
   border: 1px solid var(--gd-border);
   border-radius: var(--gd-radius-lg);
   background: var(--gd-bg-subtle);
-  padding: 16px;
-  margin: 0 0 1.5rem;
+  padding: 20px;
+  margin: 0 0 1.75rem;
 }
-.urltool-grid {
-  display: grid; grid-template-columns: auto minmax(0, 1fr);
-  gap: 9px 12px; align-items: center;
+
+.urltool-field { min-width: 0; }
+.urltool-field > label,
+.urltool-section > span {
+  display: block; margin-bottom: 6px;
+  color: var(--gd-ink-soft);
+  font: 550 0.8125rem/1.5 var(--font-base);
 }
-.urltool-grid > label {
-  color: var(--gd-ink-muted);
-  font: 650 0.6875rem/1.4 var(--font-base);
-  letter-spacing: 0.06em; text-transform: uppercase;
-  white-space: nowrap;
+.urltool-top {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
 }
-.urltool-rows-head {
-  display: flex; align-items: center; gap: 8px;
-  margin: 16px 0 8px;
-  color: var(--gd-ink-muted);
-  font: 650 0.6875rem/1.4 var(--font-base);
-  letter-spacing: 0.06em;
+.urltool .ipt {
+  padding: 8px 11px; font-size: 13px;
+  background: var(--gd-bg);
+  transition: border-color 0.12s, box-shadow 0.12s;
 }
-.urltool-rows-head .mini { margin-left: auto; }
+.urltool .ipt:focus {
+  border-color: var(--gd-accent);
+  box-shadow: 0 0 0 3px var(--gd-accent-soft);
+}
+.urltool .ipt.mono { font-family: var(--font-mono); }
+
+.urltool-section { margin-top: 18px; }
+.urltool-section > span .hint {
+  color: var(--gd-ink-muted); font-weight: 400; font-size: 0.75rem; margin-left: 6px;
+}
 .urltool-row {
-  display: grid; grid-template-columns: minmax(0, 8rem) minmax(0, 1fr) auto;
-  gap: 8px; margin-bottom: 7px; align-items: center;
+  display: grid; grid-template-columns: minmax(0, 9rem) minmax(0, 1fr) 28px;
+  gap: 8px; margin-bottom: 8px; align-items: center;
 }
-.urltool-row .ipt.code { font-family: var(--font-mono); font-size: 12.5px; }
-.urltool .mini.ghost {
-  padding: 3px 7px; color: var(--gd-ink-muted);
-  background: transparent; border-color: transparent;
+/* 删除按钮平时不抢注意力，指到这一行才浮出来 */
+.urltool-del {
+  width: 28px; height: 28px; padding: 0;
+  display: grid; place-items: center;
+  border: 0; border-radius: var(--gd-radius-sm);
+  background: transparent; color: var(--gd-ink-muted);
+  opacity: 0; cursor: pointer; transition: opacity 0.12s, color 0.12s, background 0.12s;
 }
-.urltool .mini.ghost:hover { color: var(--gd-accent); border-color: var(--gd-border-strong); }
-.urltool-out { margin-top: 14px; }
-.urltool-block { margin-bottom: 12px; }
-.urltool-block:last-child { margin-bottom: 0; }
-.urltool-label {
-  color: var(--gd-ink-muted);
-  font: 650 0.6875rem/1.4 var(--font-base);
-  letter-spacing: 0.06em; margin-bottom: 5px;
+.urltool-row:hover .urltool-del,
+.urltool-del:focus-visible { opacity: 1; }
+.urltool-del:hover { color: var(--gd-accent); background: var(--gd-accent-soft); }
+
+.urltool-add {
+  width: 100%; padding: 7px;
+  border: 1px dashed var(--gd-border-strong); border-radius: var(--gd-radius-sm);
+  background: transparent; color: var(--gd-ink-muted);
+  font: 500 12.5px/1.5 var(--font-base); cursor: pointer;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
 }
-.urltool-out .code-block { margin: 0; }
-/* 生成的签名和链接都是很长的单行，换行显示比横向滚动好读。
-   .code-block pre code 把 white-space 设成了 pre，得在 code 上盖掉 */
-.urltool-out .code-block pre code { white-space: pre-wrap; word-break: break-all; }
+.urltool-add:hover {
+  color: var(--gd-accent); border-color: var(--gd-accent);
+  background: var(--gd-accent-softer);
+}
+
+/* 结果：一个标签 + 一块内容，不再套代码块的外壳（免得「原始数据」和「json」两层标签重复） */
+.urltool-out { margin-top: 20px; }
+.urltool-out:empty { display: none; }
+.urltool-res + .urltool-res { margin-top: 12px; }
+.urltool-res-head {
+  display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px;
+}
+.urltool-res-head > span {
+  color: var(--gd-ink-soft); font: 550 0.8125rem/1.5 var(--font-base);
+}
+.urltool-res-head .note {
+  color: var(--gd-ink-muted); font-weight: 400; font-size: 0.75rem;
+}
+.urltool-copy {
+  margin-left: auto; padding: 2px 7px;
+  border: 1px solid transparent; border-radius: var(--gd-radius-sm);
+  background: transparent; color: var(--gd-ink-muted);
+  font: 500 11.5px/1.6 var(--font-base); cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+}
+.urltool-res:hover .urltool-copy { border-color: var(--gd-border); }
+.urltool-copy:hover { color: var(--gd-accent); border-color: var(--gd-accent); }
+.urltool-res-body {
+  margin: 0; padding: 11px 13px;
+  border-radius: var(--gd-radius-sm);
+  background: var(--gd-bg);
+  font: 400 12.5px/1.6 var(--font-mono); color: var(--gd-ink);
+  white-space: pre-wrap; word-break: break-all;
+}
+/* 最终链接是这里的主角，给它一点强调 */
+.urltool-res.primary .urltool-res-body {
+  border-left: 2px solid var(--gd-accent);
+}
 .urltool-note {
-  color: var(--gd-ink-muted); font-size: 12.5px; line-height: 1.6;
-  margin-bottom: 12px;
+  margin-top: 12px;
+  color: var(--gd-ink-muted); font-size: 12.5px; line-height: 1.65;
 }
-.urltool-note:last-child { margin-bottom: 0; }
+.urltool-out .urltool-note:first-child { margin-top: 0; }
 
 @media (max-width: 640px) {
-  .urltool-grid { grid-template-columns: minmax(0, 1fr); gap: 5px; }
-  .urltool-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .urltool { padding: 16px; }
+  .urltool-top { grid-template-columns: minmax(0, 1fr); }
+  .urltool-row { grid-template-columns: minmax(0, 1fr) 28px; }
+  .urltool-del { opacity: 1; }
 }
 
 /* ---- 面包屑（对齐原站 .theme-doc-breadcrumbs / infima .breadcrumbs） ---- */
