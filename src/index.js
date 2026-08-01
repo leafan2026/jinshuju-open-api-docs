@@ -247,7 +247,9 @@ async function page(env) {
   return renderPage({
     css: await assetUrl(env, "/app.css"),
     js: await assetUrl(env, "/app.js"),
-    logo: await assetUrl(env, "/img/logo.svg"),
+    // 原站 docusaurus.config.ts 里 navbar.logo.src 和 favicon 都是 img/logo.png；
+    // static/img/logo.svg 是 Docusaurus 脚手架残留的绿色吉祥物，别用
+    logo: await assetUrl(env, "/img/logo.png"),
   });
 }
 

@@ -54,6 +54,7 @@ export function renderPage({ css, js, logo }) {
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>金数据开放平台 · API</title>
 <meta name="description" content="金数据开放平台 API v1 文档，正文与 open.jinshuju.net 一致，并支持在线调试与生成请求代码。">
+<link rel="icon" href="${logo}">
 <link rel="stylesheet" href="${css}">
 </head>
 <body>

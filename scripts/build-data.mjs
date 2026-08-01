@@ -335,8 +335,10 @@ for (const doc of byId.values()) {
 
 /* ---------------- 站点资源 ---------------- */
 
-// logo 等公共图片直接用仓库 static/img 里的原件
-for (const name of ["logo.svg", "logo.png", "favicon.ico"]) {
+// logo 等公共图片直接用仓库 static/img 里的原件。
+// 故意不复制 static/img/logo.svg——那是 Docusaurus 脚手架残留的绿色吉祥物，
+// 原站 docusaurus.config.ts 用的一直是 img/logo.png（navbar.logo.src 和 favicon 都是它）。
+for (const name of ["logo.png", "favicon.ico"]) {
   const src = path.join(REPO, "static", "img", name);
   if (!fs.existsSync(src)) continue;
   const dest = path.join(HERE, "public", "img", name);

@@ -59,7 +59,7 @@ fs.writeFileSync(path.join(OUT, MARKER), "由 scripts/build-static.mjs 生成，
 // 页面外壳（与 worker 共用模板，只是资源用相对路径）
 fs.writeFileSync(
   path.join(OUT, "index.html"),
-  renderPage({ css: "app.css", js: "app.js", logo: "img/logo.svg" })
+  renderPage({ css: "app.css", js: "app.js", logo: "img/logo.png" })
 );
 
 // 前端资源
