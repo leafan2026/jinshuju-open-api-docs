@@ -18,7 +18,7 @@ import { promisify } from "node:util";
 const run = promisify(execFile);
 const appSrc = fs.readFileSync("public/app.js", "utf8");
 const from = appSrc.indexOf("  var FORM_BASE =");
-const to = appSrc.indexOf("  function urlToolHtml(");
+const to = appSrc.indexOf("  /* ---------- 生成代码");
 if (from === -1 || to === -1) {
   console.error("✗ 找不到 public/app.js 里的 URL 传参算法区块");
   process.exit(1);
@@ -30,7 +30,7 @@ const { signParams, jwtHS256, FORM_BASE } = new Function(
 
 // 生成代码那部分：连同它依赖的引号工具一起抽出来
 const snipFrom = appSrc.indexOf("  var UT_LANGS = [");
-const snipTo = appSrc.indexOf("  function mountUrlTool(");
+const snipTo = appSrc.indexOf("  /* ---------- 面板形态的生成器");
 const quoteFrom = appSrc.indexOf("  function q(s) {");
 const quoteTo = appSrc.indexOf("  // JSON 直接塞进 Python");
 if (snipFrom === -1 || snipTo === -1 || quoteFrom === -1 || quoteTo === -1) {

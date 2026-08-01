@@ -37,6 +37,7 @@
     tab: "result",
     lang: "curl",
     utLang: "python", // URL 传参生成器的语言
+    toolMode: "api",  // 右侧面板当前是接口调试还是 URL 传参生成
     response: null,
     sending: false,
     abort: null,
@@ -517,12 +518,15 @@
     return { ok: issues.length === 0, issues: issues };
   }
 
-  function paramHelpButtonHtml() {
-    return '<button class="doc-jump" type="button" data-doc-jump="Request" title="定位正文 Request">' +
+  // heading 是正文里的标题名，点了滚过去；不同页面能跳的标题不一样
+  function paramHelpButtonHtml(heading, label) {
+    heading = heading || "Request";
+    return '<button class="doc-jump" type="button" data-doc-jump="' + esc(heading) +
+      '" title="定位正文' + esc(heading) + '">' +
       '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">' +
       '<path d="M3 2.5h7.25A1.75 1.75 0 0 1 12 4.25V13H4.75A1.75 1.75 0 0 0 3 14.75V2.5Z"/>' +
       '<path d="M3 12.75h7.25M6 5.5h3.5M6 8h3.5"/></svg>' +
-      '<span>参数说明</span><span aria-hidden="true">↗</span></button>';
+      "<span>" + esc(label || "参数说明") + '</span><span aria-hidden="true">↗</span></button>';
   }
 
   function scrollToDocHeading(name) {
@@ -545,6 +549,7 @@
     if (mr) { mr.innerHTML = ""; mr.hidden = true; }
     document.body.classList.remove("modal-open");
 
+    state.toolMode = "api";
     var canRun = a.runnable !== false;
     var methods = [a.method].concat(a.alsoMethods || []);
 
@@ -661,6 +666,7 @@
   }
 
   function resetRunner() {
+    if (state.toolMode === "url") return resetUrlTool();
     var a = api();
     if (!a) return;
     el("runner-scroll").querySelectorAll("[data-pp],[data-qp]").forEach(function (n) { n.value = ""; });
@@ -685,6 +691,11 @@
   function syncUrl() {
     var u = el("run-url");
     if (!u) return;
+    if (state.toolMode === "url") {
+      u.textContent = UT.result ? UT.result.url : FORM_BASE;
+      u.scrollLeft = u.scrollWidth;
+      return;
+    }
     var path = builtPath();
     // 还没填的路径参数显示成 {form_token}，一眼看出是占位符而不是真值
     var a = api();
@@ -696,6 +707,9 @@
       });
     }
     u.textContent = API_BASE + path;
+    // 放不下时保留末尾可见：路径尾部（资源、参数）比域名前缀更该被看到。
+    // 想看前面往左滚即可。
+    u.scrollLeft = u.scrollWidth;
   }
 
   /* ---------- JSON 编辑器 ---------- */
@@ -896,6 +910,11 @@
   }
 
   function send() {
+    // URL 传参页那个面板不发请求，主按钮是「复制链接」
+    if (state.toolMode === "url") {
+      if (UT.result) copy(UT.result.url, "链接");
+      return;
+    }
     if (state.sending) { cancelSend(); return; } // 发送中再点一次 = 取消
     var readiness = requestReadiness();
     if (!readiness.ok) { toast(readiness.issues.join("；")); return; }
@@ -1104,6 +1123,7 @@
   var SNIP_LANG = { curl: "bash", js: "javascript", node: "javascript", python: "python", php: "php", ruby: "ruby", java: "java", go: "go" };
 
   function renderOut() {
+    if (state.toolMode === "url") return renderUrlOut();
     if (!api()) return;
     var tabs = el("out-tabs"), pane = el("out-pane");
     var readiness = requestReadiness();
@@ -1257,31 +1277,6 @@
     'stroke-width="1.5" stroke-linecap="round" aria-hidden="true">' +
     '<path d="M2.5 4.5h11M6 4.5V3a.5.5 0 01.5-.5h3a.5.5 0 01.5.5v1.5M4 4.5l.6 8a1 1 0 001 .9h4.8a1 1 0 001-.9l.6-8"/>' +
     '<path d="M6.5 7v4M9.5 7v4"/></svg>';
-
-  function urlToolHtml(cfg, id) {
-    return '<h2 id="' + id + '">' + esc(cfg.title) + "</h2>" +
-      '<div class="urltool" id="urltool">' +
-      '<div class="urltool-top">' +
-      '<div class="urltool-field"><label for="ut-token">表单 Token</label>' +
-      '<input class="ipt mono" id="ut-token" type="text" placeholder="粘贴表单链接或 /f/ 后面那串" autocomplete="off"></div>' +
-      '<div class="urltool-field"><label for="ut-secret">sign_secret</label>' +
-      '<input class="ipt mono" id="ut-secret" type="password" placeholder="企业密钥，只在本机计算" autocomplete="off"></div>' +
-      "</div>" +
-      '<div class="urltool-section"><span>' + esc(cfg.rowHint) +
-      '<span class="hint">' + esc(cfg.rowNote) + "</span></span>" +
-      '<div id="ut-rows"></div>' +
-      '<button class="urltool-add" id="ut-add" type="button">+ 添加字段</button></div>' +
-      '<div class="urltool-out" id="ut-out"></div>' +
-      '<div class="urltool-section">' +
-      '<div class="urltool-res-head"><span>生成代码</span>' +
-      '<span class="note">密钥务必留在服务端</span>' +
-      '<select class="lang-select" id="ut-lang">' +
-      UT_LANGS.map(function (l) {
-        return '<option value="' + l.id + '"' + (l.id === state.utLang ? " selected" : "") + ">" + l.label + "</option>";
-      }).join("") + "</select></div>" +
-      '<div id="ut-code"></div></div>' +
-      "</div>";
-  }
 
   /* ---------- 生成代码：都封装成一个可直接搬走的函数 ---------- */
 
@@ -1505,147 +1500,218 @@
     return "";
   }
 
-  function mountUrlTool(cfg) {
-    var rowsBox = el("ut-rows"), out = el("ut-out"), codeBox = el("ut-code");
-    if (!rowsBox) return;
-    var rows = [{ key: cfg.prefix + "1", value: "" }, { key: cfg.prefix + "2", value: "" }];
-    var seq = 0;
+  /* ---------- 面板形态的生成器：结构与「在线运行」一致 ---------- */
 
-    function drawRows() {
-      rowsBox.innerHTML = rows.map(function (r, i) {
-        return '<div class="urltool-row">' +
-          '<input class="ipt mono" data-k="' + i + '" value="' + esc(r.key) +
-          '" placeholder="' + esc(cfg.placeholder) + '" autocomplete="off" spellcheck="false">' +
-          '<input class="ipt" data-v="' + i + '" value="' + esc(r.value) +
-          '" placeholder="要传入的值" autocomplete="off">' +
-          '<button class="urltool-del" data-del="' + i + '" type="button" title="删除这一行" ' +
-          'aria-label="删除这一行">' + ICON_TRASH + "</button>" +
-          "</div>";
-      }).join("");
-      rowsBox.querySelectorAll("[data-k]").forEach(function (n) {
-        n.addEventListener("input", function () { rows[+n.getAttribute("data-k")].key = n.value; update(); });
-      });
-      rowsBox.querySelectorAll("[data-v]").forEach(function (n) {
-        n.addEventListener("input", function () { rows[+n.getAttribute("data-v")].value = n.value; update(); });
-      });
-      rowsBox.querySelectorAll("[data-del]").forEach(function (n) {
-        n.addEventListener("click", function () {
-          rows.splice(+n.getAttribute("data-del"), 1);
-          if (!rows.length) rows.push({ key: cfg.prefix + "1", value: "" });
-          drawRows(); update();
-        });
-      });
-    }
+  var UT = { cfg: null, rows: [], seq: 0, result: null };
 
-    // 用户手上多半是整条表单链接，粘进来就自动取出 token
-    function readToken() {
-      var raw = el("ut-token").value.trim();
-      var m = raw.match(/\/f\/([^/?#\s]+)/);
-      return m ? m[1] : raw.replace(/^https?:\/\/[^/]*\/?/, "");
-    }
+  function renderUrlRunner(cfg) {
+    state.toolMode = "url";
+    UT.cfg = cfg;
+    UT.rows = [{ key: cfg.prefix + "1", value: "" }, { key: cfg.prefix + "2", value: "" }];
+    UT.result = null;
 
-    function update() {
-      var token = readToken();
-      var secret = el("ut-secret").value;
-      var filled = rows.filter(function (r) { return r.key.trim(); });
-      var mine = ++seq; // 异步算签名，只认最后一次输入的结果
+    el("runner-req").innerHTML =
+      '<span class="verb link">LINK</span>' +
+      '<code class="runner-url" id="run-url"></code>';
+    el("btn-send").disabled = false;
+    el("btn-send").textContent = "复制链接";
+    el("btn-send").classList.remove("cancel");
+    el("btn-reset").hidden = false;
 
-      // 升序是签名能对上的前提，按字典序排（与文档示例的 TreeMap / sorted 一致）
-      var sorted = filled.slice().sort(function (a, b) {
-        return a.key.trim() < b.key.trim() ? -1 : a.key.trim() > b.key.trim() ? 1 : 0;
-      });
-      var reordered = sorted.some(function (r, i) { return r !== filled[i]; });
-      var pairs = sorted.map(function (r) { return { key: r.key.trim(), value: r.value }; });
-      var shownToken = token || "YOUR_FORM_TOKEN";
+    el("runner-scroll").innerHTML =
+      '<div class="rsec">' +
+      '<div class="rrow"><label for="ut-token">form_token<span class="star">*</span></label>' +
+      '<input class="ipt" id="ut-token" type="text" autocomplete="off" spellcheck="false" ' +
+      'placeholder="粘贴表单链接或 /f/ 后面那串"></div>' +
+      '<div class="rrow"><label for="ut-secret">sign_secret' +
+      (cfg.jwt ? '<span class="star">*</span>' : "") + "</label>" +
+      '<input class="ipt" id="ut-secret" type="password" autocomplete="off" placeholder="企业密钥"></div>' +
+      '<div class="cred-links">密钥只在这个浏览器里参与计算，不会发送；企业高级版才有，' +
+      "可以联系客户成功经理开通</div></div>" +
+      '<div class="rsec"><div class="rsec-head">' +
+      '<span class="rsec-tag">FIELDS</span>' +
+      '<span class="rsec-name">' + esc(cfg.rowHint) + "</span>" +
+      '<span class="grow"></span>' + paramHelpButtonHtml("如何配置", "配置说明") + "</div>" +
+      '<div id="ut-rows"></div>' +
+      '<button class="urltool-add" id="ut-add" type="button">+ 添加字段</button>' +
+      '<div class="rsec-hint">' + esc(cfg.rowNote) + "</div></div>";
 
-      drawCode(pairs, token, secret);
-
-      if (!filled.length) {
-        out.innerHTML = note("填一个字段 API CODE 就能看到生成结果。");
-        return;
-      }
-
-      if (cfg.jwt) {
-        var payload = {};
-        pairs.forEach(function (p) { payload[p.key] = p.value; });
-        if (!secret) {
-          render(mine, [
-            res("原始数据", JSON.stringify(payload, null, 2), { json: true }),
-            note("填入 sign_secret 后会生成 JWT 和完整链接。JWT 只签名、不加密，别放私密信息。"),
-          ]);
-          return;
-        }
-        jwtHS256(secret, payload).then(function (jwt) {
-          render(mine, [
-            res("原始数据", JSON.stringify(payload, null, 2), { json: true }),
-            res("JWT", jwt),
-            res("表单链接", FORM_BASE + shownToken + "?cusd=" + jwt, { primary: true }),
-            token ? "" : note("填入表单 Token 才是可直接打开的链接。"),
-          ]);
-        });
-        return;
-      }
-
-      // 签名针对未编码的原始值；最终 URL 里才做 URL 编码
-      var signBase = pairs.map(function (p) { return p.key + "=" + p.value; }).join("&");
-      var query = pairs.map(function (p) { return p.key + "=" + encodeURIComponent(p.value); }).join("&");
-
-      var parts = [res("签名用的参数串", signBase, { note: "按 API CODE 升序，值不编码" })];
-      if (reordered) parts.push(note("你填的顺序不是升序，已自动重排——顺序错了签名就对不上。"));
-
-      if (!secret) {
-        parts.push(res("表单链接（未签名）", FORM_BASE + shownToken + "?" + query, { primary: true }));
-        parts.push(note("填入 sign_secret 后会追加 sign 参数。"));
-        render(mine, parts);
-        return;
-      }
-      signParams(secret, signBase).then(function (sign) {
-        parts.push(res("sign", sign));
-        parts.push(res("表单链接", FORM_BASE + shownToken + "?" + query + "&sign=" + encodeURIComponent(sign),
-          { primary: true }));
-        if (!token) parts.push(note("填入表单 Token 才是可直接打开的链接。"));
-        render(mine, parts);
-      });
-    }
-
-    function drawCode(pairs, token, secret) {
-      var lang = state.utLang;
-      var meta = UT_LANGS.filter(function (l) { return l.id === lang; })[0] || UT_LANGS[0];
-      codeBox.innerHTML = codeBlock(
-        urlSnippet(lang, { token: token, secret: secret, pairs: pairs, prefix: cfg.prefix, jwt: !!cfg.jwt }),
-        meta.hl
-      );
-      bindCopy(codeBox);
-    }
-
-    function res(label, text, opts) {
-      opts = opts || {};
-      var id = stashCopy(text);
-      return '<div class="urltool-res' + (opts.primary ? " primary" : "") + '">' +
-        '<div class="urltool-res-head"><span>' + esc(label) + "</span>" +
-        (opts.note ? '<span class="note">' + esc(opts.note) + "</span>" : "") +
-        '<button class="urltool-copy" type="button" data-copy="' + id + '">复制</button></div>' +
-        '<pre class="urltool-res-body"><code>' + (opts.json ? hlJson(text) : esc(text)) + "</code></pre></div>";
-    }
-    function note(text) { return '<div class="urltool-note">' + esc(text) + "</div>"; }
-    function render(mine, parts) {
-      if (mine !== seq) return; // 有更新的输入了，丢掉这次结果
-      out.innerHTML = parts.filter(Boolean).join("");
-      bindCopy(out);
-    }
-
-    el("ut-token").addEventListener("input", update);
-    el("ut-secret").addEventListener("input", update);
+    drawUtRows();
+    el("ut-token").addEventListener("input", computeUrlTool);
+    el("ut-secret").addEventListener("input", computeUrlTool);
     el("ut-add").addEventListener("click", function () {
-      rows.push({ key: cfg.prefix + (rows.length + 1), value: "" });
-      drawRows(); update();
+      UT.rows.push({ key: UT.cfg.prefix + (UT.rows.length + 1), value: "" });
+      drawUtRows(); computeUrlTool();
     });
-    el("ut-lang").addEventListener("change", function () {
-      state.utLang = el("ut-lang").value;
-      update();
+    el("runner-scroll").querySelectorAll("[data-doc-jump]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var heading = btn.getAttribute("data-doc-jump");
+        if (!scrollToDocHeading(heading)) { toast("正文中未找到 " + heading); return; }
+        toast("已定位到正文 " + heading);
+      });
     });
-    drawRows();
-    update();
+
+    computeUrlTool();
+  }
+
+  function drawUtRows() {
+    var box = el("ut-rows");
+    box.innerHTML = UT.rows.map(function (r, i) {
+      return '<div class="urltool-row">' +
+        '<input class="ipt mono" data-k="' + i + '" value="' + esc(r.key) +
+        '" placeholder="' + esc(UT.cfg.placeholder) + '" autocomplete="off" spellcheck="false">' +
+        '<input class="ipt" data-v="' + i + '" value="' + esc(r.value) +
+        '" placeholder="要传入的值" autocomplete="off">' +
+        '<button class="urltool-del" data-del="' + i + '" type="button" title="删除这一行" ' +
+        'aria-label="删除这一行">' + ICON_TRASH + "</button></div>";
+    }).join("");
+    box.querySelectorAll("[data-k]").forEach(function (n) {
+      n.addEventListener("input", function () { UT.rows[+n.getAttribute("data-k")].key = n.value; computeUrlTool(); });
+    });
+    box.querySelectorAll("[data-v]").forEach(function (n) {
+      n.addEventListener("input", function () { UT.rows[+n.getAttribute("data-v")].value = n.value; computeUrlTool(); });
+    });
+    box.querySelectorAll("[data-del]").forEach(function (n) {
+      n.addEventListener("click", function () {
+        UT.rows.splice(+n.getAttribute("data-del"), 1);
+        if (!UT.rows.length) UT.rows.push({ key: UT.cfg.prefix + "1", value: "" });
+        drawUtRows(); computeUrlTool();
+      });
+    });
+  }
+
+  // 表单 Token 那栏允许直接粘整条表单链接
+  function utToken() {
+    var raw = (el("ut-token") || { value: "" }).value.trim();
+    var m = raw.match(/\/f\/([^/?#\s]+)/);
+    return m ? m[1] : raw.replace(/^https?:\/\/[^/]*\/?/, "");
+  }
+
+  function computeUrlTool() {
+    var cfg = UT.cfg;
+    if (!cfg) return;
+    var token = utToken();
+    var secret = el("ut-secret").value;
+    var filled = UT.rows.filter(function (r) { return r.key.trim(); });
+    var mine = ++UT.seq; // 签名是异步算的，只认最后一次输入
+
+    // 升序是签名能对上的前提（与文档示例的 TreeMap / sorted 一致）
+    var sorted = filled.slice().sort(function (a, b) {
+      return a.key.trim() < b.key.trim() ? -1 : a.key.trim() > b.key.trim() ? 1 : 0;
+    });
+    var pairs = sorted.map(function (r) { return { key: r.key.trim(), value: r.value }; });
+    var reordered = sorted.some(function (r, i) { return r !== filled[i]; });
+    var shownToken = token || "YOUR_FORM_TOKEN";
+
+    function done(result) {
+      if (mine !== UT.seq) return;
+      UT.result = result;
+      syncUrl();
+      renderOut();
+    }
+
+    if (cfg.jwt) {
+      var payload = {};
+      pairs.forEach(function (p) { payload[p.key] = p.value; });
+      if (!pairs.length || !secret) {
+        done({ pairs: pairs, payload: payload, reordered: reordered, token: token,
+          secret: secret, url: FORM_BASE + shownToken });
+        return;
+      }
+      jwtHS256(secret, payload).then(function (jwt) {
+        done({ pairs: pairs, payload: payload, reordered: reordered, token: token, secret: secret,
+          jwt: jwt, url: FORM_BASE + shownToken + "?cusd=" + jwt });
+      });
+      return;
+    }
+
+    // 签名针对未编码的原始值；URL 里的值才做转义
+    var signBase = pairs.map(function (p) { return p.key + "=" + p.value; }).join("&");
+    var query = pairs.map(function (p) { return p.key + "=" + encodeURIComponent(p.value); }).join("&");
+    if (!pairs.length || !secret) {
+      done({ pairs: pairs, signBase: signBase, reordered: reordered, token: token, secret: secret,
+        url: FORM_BASE + shownToken + (query ? "?" + query : "") });
+      return;
+    }
+    signParams(secret, signBase).then(function (sign) {
+      done({ pairs: pairs, signBase: signBase, reordered: reordered, token: token, secret: secret,
+        sign: sign, url: FORM_BASE + shownToken + "?" + query + "&sign=" + encodeURIComponent(sign) });
+    });
+  }
+
+  function resetUrlTool() {
+    UT.rows = [{ key: UT.cfg.prefix + "1", value: "" }, { key: UT.cfg.prefix + "2", value: "" }];
+    el("ut-token").value = "";
+    drawUtRows();
+    computeUrlTool();
+    toast("已清空字段");
+  }
+
+  function urlResBlock(label, text, opts) {
+    opts = opts || {};
+    var id = stashCopy(text);
+    return '<div class="urltool-res' + (opts.primary ? " primary" : "") + '">' +
+      '<div class="urltool-res-head"><span>' + esc(label) + "</span>" +
+      (opts.note ? '<span class="note">' + esc(opts.note) + "</span>" : "") +
+      '<button class="urltool-copy" type="button" data-copy="' + id + '">复制</button></div>' +
+      '<pre class="urltool-res-body"><code>' + (opts.json ? hlJson(text) : esc(text)) + "</code></pre></div>";
+  }
+
+  function renderUrlOut() {
+    var tabs = el("out-tabs"), pane = el("out-pane");
+    var r = UT.result, cfg = UT.cfg;
+    if (!r || !cfg) return;
+
+    var ready = r.pairs.length && (cfg.jwt ? !!r.secret : true);
+    tabs.innerHTML =
+      '<button class="tab' + (state.tab === "result" ? " on" : "") + '" data-tab="result">生成结果</button>' +
+      '<button class="tab' + (state.tab === "code" ? " on" : "") + '" data-tab="code">生成代码</button>' +
+      '<span class="right">' +
+      (state.tab === "code"
+        ? '<span class="ms">密钥务必留在服务端</span>' +
+          '<select class="lang-select" id="ut-lang">' + UT_LANGS.map(function (l) {
+            return '<option value="' + l.id + '"' + (l.id === state.utLang ? " selected" : "") + ">" + l.label + "</option>";
+          }).join("") + "</select>"
+        : '<span class="pill ' + (ready ? "ok" : "bad") + '">' + (ready ? "已生成" : "待填写") + "</span>") +
+      "</span>";
+
+    if (state.tab === "code") {
+      var meta = UT_LANGS.filter(function (l) { return l.id === state.utLang; })[0] || UT_LANGS[0];
+      pane.innerHTML = '<div class="code-ready-note">已代入当前字段与密钥，请勿分享生成的代码。</div>' +
+        codeBlock(urlSnippet(state.utLang, {
+          token: r.token, secret: r.secret, pairs: r.pairs, prefix: cfg.prefix, jwt: !!cfg.jwt,
+        }), meta.hl);
+    } else {
+      var parts = [];
+      if (!r.pairs.length) {
+        parts.push('<div class="urltool-note">填一个字段 API CODE 就能看到生成结果。</div>');
+      } else if (cfg.jwt) {
+        parts.push(urlResBlock("原始数据", JSON.stringify(r.payload, null, 2), { json: true }));
+        if (r.jwt) parts.push(urlResBlock("JWT", r.jwt));
+        parts.push(urlResBlock("表单链接", r.url, { primary: true }));
+        if (!r.secret) parts.push('<div class="urltool-note">填入 sign_secret 后会生成 JWT。' +
+          "JWT 只签名、不加密，别放私密信息。</div>");
+      } else {
+        parts.push(urlResBlock("签名用的参数串", r.signBase, { note: "按 API CODE 升序，值不编码" }));
+        if (r.reordered) {
+          parts.push('<div class="urltool-note">你填的顺序不是升序，已自动重排——顺序错了签名就对不上。</div>');
+        }
+        if (r.sign) parts.push(urlResBlock("sign", r.sign));
+        parts.push(urlResBlock(r.sign ? "表单链接" : "表单链接（未签名）", r.url, { primary: true }));
+        if (!r.secret) parts.push('<div class="urltool-note">填入 sign_secret 后会追加 sign 参数。</div>');
+      }
+      if (r.pairs.length && !r.token) {
+        parts.push('<div class="urltool-note">填入 form_token 才是可直接打开的链接。</div>');
+      }
+      pane.innerHTML = parts.join("");
+    }
+
+    tabs.querySelectorAll("[data-tab]").forEach(function (n) {
+      n.addEventListener("click", function () { state.tab = n.getAttribute("data-tab"); renderOut(); });
+    });
+    var sel = el("ut-lang");
+    if (sel) sel.addEventListener("change", function () { state.utLang = sel.value; renderOut(); });
+    bindCopy(pane);
   }
 
   /* ================= 路由 ================= */
@@ -1695,33 +1761,29 @@
     var bodyHtml = renderMarkdown(r.doc.markdown, true);
 
     // URL 传参这两页讲的是手工拼签名链接，正文末尾接一个生成器
+    // URL 传参这两页的生成器放在右侧面板里，跟接口页的「在线运行」同一个形态
     var urlTool = URL_TOOLS[r.doc.route];
-    if (urlTool) {
-      var toolId = slugify(urlTool.title);
-      tocItems.push({ level: 2, id: toolId, text: urlTool.title });
-      bodyHtml += urlToolHtml(urlTool, toolId);
-    }
+    var hasRunner = !!(r.doc.api || urlTool);
 
     el("doc").innerHTML =
       '<div class="doc-head' + (r.doc.route === "" ? " no-crumbs" : "") + '">' +
       breadcrumbsHtml(r.doc) +
       '<div class="doc-head-actions">' +
       '<button class="btn" data-act="copy-page" title="复制原始 Markdown">' + COPY_PAGE_ICON + '<span>复制页面</span></button>' +
-      (r.doc.api ? '<button class="btn" data-act="toggle-runner">' + RUNNER_ICON + '<span>在线运行</span></button>' : "") +
+      (hasRunner ? '<button class="btn" data-act="toggle-runner">' + RUNNER_ICON +
+        "<span>" + (urlTool ? "生成链接" : "在线运行") + "</span></button>" : "") +
       "</div></div>" +
       '<div class="markdown" id="md">' + bodyHtml + "</div>";
 
     var layout = el("layout");
-    layout.classList.toggle("has-api", !!r.doc.api);
-    if (r.doc.api) {
+    layout.classList.toggle("has-api", hasRunner);
+    if (hasRunner) {
       layout.classList.toggle("runner-open", state.runnerOpen);
-      renderRunner();
+      if (urlTool) renderUrlRunner(urlTool); else renderRunner();
     } else {
       layout.classList.remove("runner-open");
     }
     if (state.refreshLayout) state.refreshLayout();
-
-    if (urlTool) mountUrlTool(urlTool);
 
     renderToc();
     renderMenu();
