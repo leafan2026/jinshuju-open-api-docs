@@ -641,17 +641,11 @@ body.resize-col .layout { transition: none; }
 
 .runner-top {
   flex: none;
-  display: flex; align-items: center; gap: 8px;
-  padding: 12px 16px 10px;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px;
+  padding: 13px 14px;
   border-bottom: 1px solid var(--gd-border);
   background: var(--gd-bg);
 }
-.runner-top h2 {
-  margin: 0; color: var(--gd-ink);
-  font: 650 0.9375rem/1.4 var(--font-base); letter-spacing: -0.01em;
-}
-.runner-top .sub { color: var(--gd-ink-muted); font-size: 12px; }
-.runner-top .clean-btn { margin-left: auto; }
 
 .runner-scroll {
   flex: 1; min-height: 0; overflow-y: auto;
@@ -675,43 +669,105 @@ body.resize-col .layout { transition: none; }
 }
 .resize-runner-split:hover::after, .resize-runner-split.active::after { width: 72px; }
 
-.req-line {
+/* ---- 顶部栏：方法 + 地址 + 重置/发送 ---- */
+
+.runner-req {
+  /* 侧栏宽度下地址栏可以很窄（自己能横向滚），放不下时按钮整组折到下一行 */
+  flex: 1 1 190px; min-width: 0;
   display: flex; align-items: center; gap: 10px;
-  border: 1px solid var(--gd-border); border-radius: var(--gd-radius-sm);
-  background: var(--gd-bg-subtle);
-  padding: 6px 6px 6px 11px;
-  margin-bottom: 16px;
 }
-.req-line .verb { font-size: 10.5px; }
-.req-line .u {
+/* 顶部栏这里的方法标记做成带底色的胶囊：它是这一栏的主角，
+   比菜单里那种无底色细字更该被看见。底色取方法自己的颜色。 */
+.runner-top .verb {
+  font: 650 10.5px/1 var(--font-mono);
+  padding: 5px 8px; border-radius: 5px;
+  background: color-mix(in srgb, currentColor 13%, transparent);
+  opacity: 1;
+}
+.runner-url {
   flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap;
-  color: var(--gd-ink); font: 400 12px/1.5 var(--font-mono);
+  color: var(--gd-ink); font: 400 13px/1.5 var(--font-mono);
   scrollbar-width: none;
 }
-.req-line .u::-webkit-scrollbar { display: none; }
-.req-line .btn-accent { padding: 5px 14px; flex: none; }
+.runner-url::-webkit-scrollbar { display: none; }
+/* 多方法接口：那个彩色标签本身就是下拉 */
+.runner-verb-sel {
+  flex: none; border: 0; cursor: pointer; appearance: none;
+  padding-right: 15px;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: right 6px center, right 3px center;
+  background-size: 3px 3px, 3px 3px;
+  background-repeat: no-repeat;
+}
+/* 按钮整组一起折行，别把「重置」和「发送请求」拆到两行 */
+.runner-acts {
+  flex: none; margin-left: auto;
+  display: flex; align-items: center; gap: 8px;
+}
+.runner-acts .btn-accent { padding: 6px 16px; }
+.runner-acts .clean-btn { margin-left: 2px; }
 
-.rgroup { margin-bottom: 18px; }
-.rgroup-head {
-  display: flex; align-items: center; gap: 8px; margin: 0 0 9px;
+/* ---- 分区：凭据 / PATH / QUERY / BODY ---- */
+
+.rsec { padding: 18px 0; border-top: 1px solid var(--gd-border); }
+.rsec:first-child { padding-top: 4px; border-top: 0; }
+.rsec:last-child { padding-bottom: 4px; }
+.rsec-head {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 9px;
+  margin-bottom: 12px;
 }
-.rgroup > h3, .rgroup-head > h3 {
-  margin: 0 0 9px; color: var(--gd-ink-muted);
-  font: 650 0.6875rem/1.4 var(--font-base);
-  letter-spacing: 0.07em; text-transform: uppercase;
-  display: flex; align-items: center; gap: 7px;
+.rsec-tag {
+  color: var(--gd-ink-muted);
+  font: 550 0.6875rem/1.4 var(--font-mono);
+  letter-spacing: 0.08em;
 }
-.rgroup-head > h3 { margin: 0; }
-.rgroup > h3 .note, .rgroup-head > h3 .note {
-  font: 400 11px var(--font-base); letter-spacing: 0; text-transform: none;
-  color: var(--gd-ink-muted); opacity: 0.85;
+.rsec-name { color: var(--gd-ink-muted); font: 400 12px/1.4 var(--font-mono); }
+.rsec-head .grow { flex: 1; }
+.rsec-hint { margin-top: 9px; color: var(--gd-ink-muted); font-size: 12px; }
+
+/* 分区标题行右侧的工具按钮 */
+.rtool {
+  flex: none; height: 30px; padding: 0 13px;
+  border: 1px solid var(--gd-border-strong); border-radius: var(--gd-radius-sm);
+  background: var(--gd-bg); color: var(--gd-ink-soft);
+  font: 500 12.5px/1 var(--font-base); cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
 }
+.rtool:hover { border-color: var(--gd-ink-muted); color: var(--gd-ink); }
+.rtool-icon {
+  width: 30px; padding: 0;
+  display: inline-grid; place-items: center;
+}
+.rtool-icon svg { display: block; }
+
+
+
+.rrow {
+  display: grid; grid-template-columns: minmax(0, 168px) minmax(0, 1fr);
+  gap: 14px; align-items: center; margin-bottom: 10px;
+}
+.rrow:last-child { margin-bottom: 0; }
+.rrow > label {
+  color: var(--gd-ink-soft); font: 400 12.5px/1.5 var(--font-mono);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rrow > label .star { color: var(--gd-accent); margin-left: 3px; }
+
+/* JSON 合法 / 格式错误：做成徽章 */
+.jsed-status {
+  flex: none; padding: 2px 9px; border-radius: 999px;
+  font: 550 11.5px/1.6 var(--font-base);
+  color: var(--gd-ink-muted); background: var(--gd-surface);
+}
+.jsed-status.ok { color: var(--m-get); background: color-mix(in srgb, var(--m-get) 12%, transparent); }
+.jsed-status.bad { color: var(--m-delete); background: color-mix(in srgb, var(--m-delete) 12%, transparent); }
 
 .doc-jump {
   flex: none; display: inline-flex; align-items: center; gap: 4px;
-  margin-left: auto; padding: 2px 3px;
+  padding: 2px 3px;
   border: 0; background: transparent; color: var(--gd-accent);
-  font: 550 11px/1.4 var(--font-base); cursor: pointer;
+  font: 550 12.5px/1.4 var(--font-base); cursor: pointer;
 }
 .doc-jump:hover { text-decoration: underline; }
 .doc-jump svg { opacity: 0.85; }
@@ -832,6 +888,31 @@ select.ipt { font-family: var(--font-base); cursor: pointer; }
 .jsed-input::-webkit-scrollbar-thumb { background: var(--gd-border-strong); border-radius: 4px; }
 .jsed-hl::-webkit-scrollbar { display: none; }
 
+/* 编辑器固定深色：JSON 高亮那套配色在亮色底上太淡，而且深色能把「这是代码」讲清楚 */
+.jsed {
+  --jsed-bg: #0f1014;
+  --jsed-rule: #23262e;
+  --jsed-ink: #c8d0e0;
+  --jsed-muted: #6f7681;
+  background: var(--jsed-bg);
+  border-color: var(--jsed-rule);
+}
+.jsed .jsed-gutter {
+  background: var(--jsed-bg); color: var(--jsed-muted);
+  border-right-color: var(--jsed-rule);
+}
+.jsed .jsed-hl { background: var(--jsed-bg); color: var(--jsed-ink); }
+.jsed .jsed-input { caret-color: #e8eaed; }
+.jsed .jsed-input::selection { background: #33507a; }
+.jsed .jsed-input::-webkit-scrollbar-thumb { background: #3a3f4a; }
+.jsed .tok-key { color: #7dcfff; }
+.jsed .tok-str { color: #9ece6a; }
+.jsed .tok-num { color: #ff9e64; }
+.jsed .tok-bool { color: #bb9af7; }
+.jsed .tok-punc { color: #a9b1d6; }
+.jsed .jsed-line.has-error { color: #ff8f85; }
+
+
 /* 全屏编辑：独立模态层，盖住顶栏 */
 .modal-root {
   position: fixed; inset: 0; z-index: 200;
@@ -850,7 +931,6 @@ body.modal-open { overflow: hidden; }
   border-color: var(--gd-border-strong);
   box-shadow: 0 24px 60px -12px #00000040;
 }
-.jsed.jsed-full .jsed-bar { padding: 9px 12px 9px 14px; }
 .jsed.jsed-full .jsed-body { height: auto; flex: 1; }
 .jsed.jsed-full .jsed-hl, .jsed.jsed-full .jsed-input { font-size: 13.5px; padding: 14px 16px; }
 .jsed.jsed-full .jsed-gutter { width: 54px; font-size: 13.5px; padding: 14px 10px 14px 0; }

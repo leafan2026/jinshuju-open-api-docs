@@ -103,12 +103,16 @@ export function renderPage({ css, js, logo }) {
   <aside class="runner" aria-label="在线运行浮窗">
     <div class="resize-handle resize-runner" id="resize-runner" role="separator" aria-label="调整在线运行宽度" aria-orientation="vertical" tabindex="0"></div>
     <div class="runner-top">
-      <h2>在线运行</h2>
-      <button class="clean-btn" id="btn-close-runner" title="收起">
-        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7">
-          <path d="M4 4l8 8M12 4l-8 8"/>
-        </svg>
-      </button>
+      <div class="runner-req" id="runner-req"></div>
+      <div class="runner-acts">
+        <button class="btn" id="btn-reset" title="参数与 JSON 恢复成文档里的示例值">重置</button>
+        <button class="btn btn-accent" id="btn-send">发送请求</button>
+        <button class="clean-btn" id="btn-close-runner" title="收起">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7">
+            <path d="M4 4l8 8M12 4l-8 8"/>
+          </svg>
+        </button>
+      </div>
     </div>
     <div class="runner-scroll" id="runner-scroll"></div>
     <div class="resize-handle resize-runner-split" id="resize-runner-split" role="separator" aria-label="调整请求与结果区域高度" aria-orientation="horizontal" tabindex="0"></div>

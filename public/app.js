@@ -462,6 +462,17 @@
 
   function api() { return state.current && state.current.api ? state.current.api : null; }
 
+  // 读某个 Path / Query 参数当前填了什么。
+  // 千万别叫 valueOf——那是 Object.prototype 上的方法名，拼错作用域时不会报错，
+  // 只会静默拿到 Object.prototype.valueOf 并返回 truthy。
+  function paramValue(kind, name) {
+    var value = "";
+    document.querySelectorAll("[data-" + kind + "]").forEach(function (n) {
+      if (n.getAttribute("data-" + kind) === name) value = n.value.trim();
+    });
+    return value;
+  }
+
   function builtPath() {
     var a = api();
     if (!a) return "";
@@ -489,20 +500,12 @@
     if (!state.creds.key.trim()) issues.push("缺少 API_KEY");
     if (!state.creds.secret.trim()) issues.push("缺少 API_SECRET");
 
-    function valueOf(kind, name) {
-      var value = "";
-      document.querySelectorAll("[data-" + kind + "]").forEach(function (n) {
-        if (n.getAttribute("data-" + kind) === name) value = n.value.trim();
-      });
-      return value;
-    }
-
     if (a) {
       (a.pathParams || []).forEach(function (p) {
-        if (p.required && !valueOf("pp", p.name)) issues.push("缺少 Path 参数 " + p.name);
+        if (p.required && !paramValue("pp", p.name)) issues.push("缺少 Path 参数 " + p.name);
       });
       (a.queryParams || []).forEach(function (p) {
-        if (p.required && !valueOf("qp", p.name)) issues.push("缺少 Query 参数 " + p.name);
+        if (p.required && !paramValue("qp", p.name)) issues.push("缺少 Query 参数 " + p.name);
       });
     }
 
@@ -543,57 +546,75 @@
     document.body.classList.remove("modal-open");
 
     var canRun = a.runnable !== false;
+    var methods = [a.method].concat(a.alsoMethods || []);
+
+    // 顶部栏：方法胶囊 + 标题/地址两行 + 复制/重置/发送，跟着接口变
+    el("runner-req").innerHTML =
+      (methods.length > 1
+        ? '<select class="runner-verb-sel verb ' + a.method.toLowerCase() + '" id="in-method" ' +
+          'title="该接口支持多种方法">' +
+          methods.map(function (m) { return '<option value="' + m + '">' + m + "</option>"; }).join("") +
+          "</select>"
+        : '<span class="verb ' + a.method.toLowerCase() + '">' + esc(a.method) + "</span>") +
+      '<code class="runner-url" id="run-url">' + esc(API_BASE + a.path) + "</code>";
+    el("btn-send").disabled = !canRun;
+    el("btn-send").textContent = "发送请求";
+    el("btn-send").classList.remove("cancel");
+    el("btn-reset").hidden = !canRun;
+
     var html = "";
 
-    html += '<div class="req-line">' +
-      '<span class="verb ' + a.method.toLowerCase() + '">' + esc(a.method) + "</span>" +
-      '<span class="u" id="run-url">' + esc(API_BASE + a.path) + "</span>" +
-      '<button class="btn btn-accent" id="btn-send"' + (canRun ? "" : " disabled") + ">发送</button></div>";
-
-    if (a.alsoMethods && a.alsoMethods.length) {
-      html += '<div class="rgroup"><h3>方法</h3><select class="ipt" id="in-method">' +
-        [a.method].concat(a.alsoMethods).map(function (m) {
-          return '<option value="' + m + '">' + m + "</option>";
-        }).join("") + "</select></div>";
-    }
-
-    html += '<div class="rgroup"><h3>认证 <span class="note">Basic Auth</span></h3>' +
-      '<div class="frow"><label>API_KEY<span class="star">*</span></label>' +
-      '<input class="ipt" id="in-key" type="text" autocomplete="off" placeholder="你的 API Key"></div>' +
-      '<div class="frow"><label>API_SECRET<span class="star">*</span></label>' +
-      '<input class="ipt" id="in-secret" type="password" autocomplete="off" placeholder="你的 API Secret"></div>' +
+    html += '<div class="rsec">' +
+      '<div class="rrow"><label for="in-key">API_KEY<span class="star">*</span></label>' +
+      '<input class="ipt" id="in-key" type="text" autocomplete="off" placeholder="在个人中心 → API 获取"></div>' +
+      '<div class="rrow"><label for="in-secret">API_SECRET<span class="star">*</span></label>' +
+      '<input class="ipt" id="in-secret" type="password" autocomplete="off" placeholder="在个人中心 → API 获取"></div>' +
       '<div class="cred-links">在 <a href="https://next.jinshuju.net/profile/api" target="_blank" rel="noopener">个人中心 → API</a>' +
-      ' 或 <a href="https://next.jinshuju.net/system/api_licence" target="_blank" rel="noopener">系统设置 → 企业 API</a> 获取</div></div>';
+      ' 或 <a href="https://next.jinshuju.net/system/api_licence" target="_blank" rel="noopener">系统设置 → 企业 API</a> 获取' +
+      '，凭据只存在本浏览器</div></div>';
 
     if (a.pathParams.length) {
-      html += '<div class="rgroup"><h3>Path 参数</h3>' + a.pathParams.map(function (p) {
-        return '<div class="frow"><label title="' + esc(p.name) + '">' + esc(p.name) +
-          (p.required ? '<span class="star">*</span>' : "") + "</label>" +
-          '<input class="ipt" data-pp="' + esc(p.name) + '" placeholder="' + esc(p.name) + '"></div>';
-      }).join("") + "</div>";
+      html += '<div class="rsec"><div class="rsec-head">' +
+        '<span class="rsec-tag">PATH</span><span class="rsec-name">路径参数</span></div>' +
+        a.pathParams.map(function (p) {
+          // 数据里的占位符是 FORM_TOKEN 这种大写，显示成小写更像参数名
+          return '<div class="rrow"><label title="' + esc(p.desc || p.name) + '">' +
+            esc(p.name.toLowerCase()) +
+            (p.required ? '<span class="star">*</span>' : "") + "</label>" +
+            '<input class="ipt" data-pp="' + esc(p.name) + '" placeholder="' +
+            esc(p.name.toLowerCase()) + '"></div>';
+        }).join("") + "</div>";
     }
 
     if (a.queryParams.length) {
-      html += '<div class="rgroup"><div class="rgroup-head"><h3>Query 参数</h3>' +
-        paramHelpButtonHtml() + "</div>" + a.queryParams.map(function (p) {
-        return '<div class="frow"><label title="' + esc(p.name) + '">' + esc(p.name) +
-          (p.required ? '<span class="star">*</span>' : "") + "</label>" +
-          '<input class="ipt" data-qp="' + esc(p.name) + '" placeholder="可选"></div>';
-      }).join("") + "</div>";
+      html += '<div class="rsec"><div class="rsec-head">' +
+        '<span class="rsec-tag">QUERY</span><span class="rsec-name">查询参数</span>' +
+        '<span class="grow"></span>' + paramHelpButtonHtml() + "</div>" +
+        a.queryParams.map(function (p) {
+          return '<div class="rrow"><label title="' + esc(p.name) + '">' + esc(p.name) +
+            (p.required ? '<span class="star">*</span>' : "") + "</label>" +
+            '<input class="ipt" data-qp="' + esc(p.name) + '" placeholder="可选"></div>';
+        }).join("") + "</div>";
     }
 
     if (!canRun) {
-      html += '<div class="rgroup"><div class="rgroup-head"><h3>Body <span class="note">' +
-        esc(a.contentType) + "</span></h3>" +
+      html += '<div class="rsec"><div class="rsec-head">' +
+        '<span class="rsec-tag">BODY</span><span class="rsec-name">' + esc(a.contentType) + "</span>" +
+        '<span class="grow"></span>' +
         (a.bodyParams && a.bodyParams.length ? paramHelpButtonHtml() : "") + "</div>" +
         '<div class="hint-box">该接口是文件上传（multipart/form-data），在线运行暂不支持；' +
         "正文「示例代码」一节给出了可直接使用的写法。</div></div>";
     } else if (["POST", "PUT", "PATCH"].indexOf(a.method) !== -1 || (a.alsoMethods || []).length) {
-      var init = a.requestExample || "{\n  \n}";
-      try { init = JSON.stringify(JSON.parse(init), null, 2); } catch (err) { /* 保留 */ }
-      html += '<div class="rgroup"><div class="rgroup-head"><h3>Body <span class="note">application/json</span></h3>' +
+      // JSON 编辑器的状态和工具按钮都提到分区标题行上，编辑器本身只剩行号 + 代码
+      html += '<div class="rsec"><div class="rsec-head">' +
+        '<span class="rsec-tag">BODY</span><span class="rsec-name">application/json</span>' +
+        '<span class="jsed-status" id="jsed-status"></span>' +
+        '<span class="grow"></span>' +
+        '<button class="rtool" id="jsed-fmt" type="button" title="按 2 空格缩进重新格式化">格式化</button>' +
+        '<button class="rtool rtool-icon" id="jsed-full" type="button"></button>' +
         (a.bodyParams && a.bodyParams.length ? paramHelpButtonHtml() : "") + "</div>" +
-        jsonEditorHtml(init) + "</div>";
+        jsonEditorHtml(bodyDefault(a)) +
+        '<div class="rsec-hint">点击任意位置直接编辑 JSON</div></div>';
     }
 
     wrap.innerHTML = html;
@@ -618,19 +639,42 @@
         toast("已定位到正文 " + heading);
       });
     });
+    // 方法下拉自己就是那个彩色标签，切换时同步配色
     var ms = el("in-method");
     if (ms) ms.addEventListener("change", function () {
-      wrap.querySelector(".req-line .verb").className = "verb " + ms.value.toLowerCase();
-      wrap.querySelector(".req-line .verb").textContent = ms.value;
+      ms.className = "runner-verb-sel verb " + ms.value.toLowerCase();
       if (state.tab === "code") renderOut();
     });
 
     initJsonEditor(function () { if (state.tab === "code") renderOut(); });
-    if (canRun) el("btn-send").addEventListener("click", send);
 
     syncUrl();
     state.response = null;
     renderOut();
+  }
+
+  // 文档里的示例值：Path 参数用 example，Body 用 requestExample
+  function bodyDefault(a) {
+    var init = a.requestExample || "{\n  \n}";
+    try { init = JSON.stringify(JSON.parse(init), null, 2); } catch (err) { /* 原样 */ }
+    return init;
+  }
+
+  function resetRunner() {
+    var a = api();
+    if (!a) return;
+    el("runner-scroll").querySelectorAll("[data-pp],[data-qp]").forEach(function (n) { n.value = ""; });
+    var ta = el("in-body");
+    if (ta) {
+      ta.value = bodyDefault(a);
+      ta.dispatchEvent(new Event("input"));
+    }
+    var ms = el("in-method");
+    if (ms) { ms.value = a.method; ms.dispatchEvent(new Event("change")); }
+    state.response = null;
+    syncUrl();
+    renderOut();
+    toast("已恢复成文档里的示例值");
   }
 
   function curMethod() {
@@ -640,20 +684,25 @@
 
   function syncUrl() {
     var u = el("run-url");
-    if (u) u.textContent = API_BASE + builtPath();
+    if (!u) return;
+    var path = builtPath();
+    // 还没填的路径参数显示成 {form_token}，一眼看出是占位符而不是真值
+    var a = api();
+    if (a) {
+      (a.pathParams || []).forEach(function (p) {
+        if (!paramValue("pp", p.name)) {
+          path = path.split(p.name).join("{" + p.name.toLowerCase() + "}");
+        }
+      });
+    }
+    u.textContent = API_BASE + path;
   }
 
   /* ---------- JSON 编辑器 ---------- */
 
+  // 工具栏在分区标题行上（见 renderRunner），这里只剩行号 + 代码
   function jsonEditorHtml(initial) {
     return '<div class="jsed" id="jsed">' +
-      '<div class="jsed-bar">' +
-      '<span class="jsed-name">JSON</span>' +
-      '<span class="jsed-status" id="jsed-status"></span>' +
-      '<span class="grow"></span>' +
-      '<button class="mini" id="jsed-fmt" title="按 2 空格缩进重新格式化">格式化</button>' +
-      '<button class="mini" id="jsed-full"></button>' +
-      "</div>" +
       '<div class="jsed-body">' +
       '<div class="jsed-gutter" id="jsed-gutter"></div>' +
       '<div class="jsed-code">' +
@@ -890,7 +939,7 @@
         clearTimeout(timer);
         state.sending = false;
         state.abort = null;
-        setSendBtn("发送", false);
+        setSendBtn("发送请求", false);
         renderOut();
       });
   }
@@ -1904,6 +1953,9 @@
     el("btn-theme").addEventListener("click", function () {
       applyTheme(document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark");
     });
+    // 顶部栏的按钮是静态的，只绑一次；renderRunner 只改它们的状态
+    el("btn-send").addEventListener("click", send);
+    el("btn-reset").addEventListener("click", resetRunner);
     el("btn-close-runner").addEventListener("click", function () {
       state.runnerOpen = false;
       el("layout").classList.remove("runner-open", "runner-overlay");
