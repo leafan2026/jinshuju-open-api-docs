@@ -1,7 +1,7 @@
 /* 金数据开放平台 · API 文档站前端
  *
  * 内容源是 jinshuju/open-doc 仓库里的 markdown（由 scripts/build-data.mjs 生成 site.json），
- * 排版沿用原站；新增的只有右侧「在线运行」——真实发请求 + 生成多语言请求代码。
+ * 排版沿用原站；新增的只有右侧「在线调试」——真实发请求 + 生成多语言请求代码。
  */
 (function () {
   "use strict";
@@ -459,7 +459,7 @@
     });
   }
 
-  /* ================= 在线运行 ================= */
+  /* ================= 在线调试 ================= */
 
   function api() { return state.current && state.current.api ? state.current.api : null; }
 
@@ -604,7 +604,7 @@
         a.queryParams.map(function (p) {
           return '<div class="rrow"><label title="' + esc(p.name) + '">' + esc(p.name) +
             (p.required ? '<span class="star">*</span>' : "") + "</label>" +
-            '<input class="ipt" data-qp="' + esc(p.name) + '" placeholder="可选"></div>';
+            '<input class="ipt" data-qp="' + esc(p.name) + '" placeholder="选填"></div>';
         }).join("") + "</div>";
     }
 
@@ -613,7 +613,7 @@
         '<span class="rsec-tag">BODY</span><span class="rsec-name">' + esc(a.contentType) + "</span>" +
         '<span class="grow"></span>' +
         (a.bodyParams && a.bodyParams.length ? paramHelpButtonHtml() : "") + "</div>" +
-        '<div class="hint-box">该接口是文件上传（multipart/form-data），在线运行暂不支持；' +
+        '<div class="hint-box">该接口是文件上传（multipart/form-data），在线调试暂不支持；' +
         "正文「示例代码」一节给出了可直接使用的写法。</div></div>";
     } else if (["POST", "PUT", "PATCH"].indexOf(a.method) !== -1 || (a.alsoMethods || []).length) {
       // JSON 编辑器的状态和工具按钮都提到分区标题行上，编辑器本身只剩行号 + 代码
@@ -1516,7 +1516,7 @@
     return "";
   }
 
-  /* ---------- 面板形态的生成器：结构与「在线运行」一致 ---------- */
+  /* ---------- 面板形态的生成器：结构与「在线调试」一致 ---------- */
 
   var UT = { cfg: null, rows: [], seq: 0, result: null };
 
@@ -1777,7 +1777,7 @@
     var bodyHtml = renderMarkdown(r.doc.markdown, true);
 
     // URL 传参这两页讲的是手工拼签名链接，正文末尾接一个生成器
-    // URL 传参这两页的生成器放在右侧面板里，跟接口页的「在线运行」同一个形态
+    // URL 传参这两页的生成器放在右侧面板里，跟接口页的「在线调试」同一个形态
     var urlTool = URL_TOOLS[r.doc.route];
     var hasRunner = !!(r.doc.api || urlTool);
 
@@ -1787,7 +1787,7 @@
       '<div class="doc-head-actions">' +
       '<button class="btn" data-act="copy-page" title="复制原始 Markdown">' + COPY_PAGE_ICON + '<span>复制页面</span></button>' +
       (hasRunner ? '<button class="btn" data-act="toggle-runner">' + RUNNER_ICON +
-        "<span>" + (urlTool ? "生成链接" : "在线运行") + "</span></button>" : "") +
+        "<span>" + (urlTool ? "生成链接" : "在线调试") + "</span></button>" : "") +
       "</div></div>" +
       '<div class="markdown" id="md">' + bodyHtml + "</div>";
 

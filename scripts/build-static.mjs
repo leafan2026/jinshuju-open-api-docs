@@ -9,7 +9,7 @@
  *
  * 之所以不需要服务端：金数据 API 自己开了 CORS
  * （Access-Control-Allow-Origin: *，且允许 authorization 头），
- * 所以「在线运行」是浏览器直连 jinshuju.net，凭据不经第三方。
+ * 所以「在线调试」是浏览器直连 jinshuju.net，凭据不经第三方。
  *
  * 前置：先跑 scripts/build-data.mjs 生成 src/data/site.json。
  */
@@ -100,4 +100,4 @@ function size(p) {
 const site = JSON.parse(fs.readFileSync(DATA, "utf8"));
 console.log(`✓ ${path.relative(process.cwd(), OUT) || OUT}`);
 console.log(`  ${Object.keys(site.docs).length} 篇文档，${(size(OUT) / 1024).toFixed(0)} KB`);
-console.log("  纯静态，直接托管即可；在线运行走浏览器直连，无需服务端");
+console.log("  纯静态，直接托管即可；在线调试走浏览器直连，无需服务端");

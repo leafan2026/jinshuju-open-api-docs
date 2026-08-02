@@ -4,7 +4,7 @@
  * 路由：
  *   GET  /              → 文档站页面（三栏 Apifox 风格）
  *   GET  /data.json     → 接口 + 指南数据（构建时打包进 worker）
- *   POST /_proxy        → 在线运行代理，转发到 https://jinshuju.net/api/v1/*
+ *   POST /_proxy        → 在线调试代理，转发到 https://jinshuju.net/api/v1/*
  *   GET  /healthz       → 健康检查
  */
 
@@ -101,7 +101,7 @@ export default {
   },
 };
 
-/* ---------------- 在线运行代理 ---------------- */
+/* ---------------- 在线调试代理 ---------------- */
 
 async function proxy(request, env, cors) {
   const token = String((env && env.PROXY_TOKEN) || "");

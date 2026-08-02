@@ -1,7 +1,7 @@
 /* 金数据开放平台 · API 文档站
  *
  * 设计变量与正文排版直接对齐 open.jinshuju.net（Docusaurus 主题 + gd-* 设计令牌），
- * 正文部分力求与原站一模一样；新增的只有右侧「在线运行」面板。
+ * 正文部分力求与原站一模一样；新增的只有右侧「在线调试」面板。
  */
 
 :root {
@@ -589,7 +589,7 @@ body.resize-col .layout { transition: none; }
 [data-theme="dark"] .tok-num { color: #8fb8ee; }
 [data-theme="dark"] .tok-bool { color: #c3a4f2; }
 
-/* ============ 右侧在线运行 ============ */
+/* ============ 右侧在线调试 ============ */
 
 .runner {
   position: absolute; z-index: 12;

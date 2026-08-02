@@ -1,7 +1,7 @@
 # 金数据开放平台 · API 文档站
 
 **内容源就是 [`jinshuju/open-doc`](https://github.com/jinshuju/open-doc) 仓库里的 markdown**，本仓库只做渲染层：
-沿用原站排版，在接口页右边加上真实可发请求的「在线运行」面板和多语言请求代码。
+沿用原站排版，在接口页右边加上真实可发请求的「在线调试」面板和多语言请求代码。
 
 这里不存一份文档副本。改文档去 open-doc 改 `.md`，回来跑一次 `npm run data` 即可。
 
@@ -13,7 +13,7 @@ access-control-allow-methods: GET, POST, PUT, PATCH, DELETE, OPTIONS
 access-control-allow-headers: authorization,content-type
 ```
 
-所以「在线运行」是浏览器直连 `jinshuju.net`，凭据从浏览器直接到金数据，不经任何第三方服务器。
+所以「在线调试」是浏览器直连 `jinshuju.net`，凭据从浏览器直接到金数据，不经任何第三方服务器。
 `npm run build` 产出的 `dist/` 扔 GitHub Pages / OSS / Nginx 就能跑。
 
 两个地址（都只是部署目标，不是依赖）：
@@ -36,21 +36,21 @@ npm run data -- /path/to/open-doc
 | 页面路由 | 用 docusaurus 的 URL 路径当 hash 路由，`/api_v1/endpoints/get_forms` → `#/api_v1/endpoints/get_forms`；识别 front-matter 的 `slug` |
 | 站内链接 | `](/api_v1/authentication)` 一类绝对链接改写成 hash 路由，点击不跳出站；站外链接原样保留 |
 | 本地图片 | `![](./images/x.png)` 复制到 `public/img/<分区>/` 并改写引用 |
-| 接口元数据 | 从 `### Request` 代码块解析方法与路径（含 `PATCH/POST/PUT` 这种多方法写法），从紧随其后的参数表分出 Path / Query / Body，取第一段配平的 JSON 当 Body 初始值；识别 `multipart/form-data` 并标记为不可在线运行 |
+| 接口元数据 | 从 `### Request` 代码块解析方法与路径（含 `PATCH/POST/PUT` 这种多方法写法），从紧随其后的参数表分出 Path / Query / Body，取第一段配平的 JSON 当 Body 初始值；识别 `multipart/form-data` 并标记为不可在线调试 |
 | 正文 | md 原文照搬，不改写语义 |
 
-当前覆盖：**51 篇文档，其中 25 个接口可在线运行**（含仓库里比线上多出的表单视图 6 个接口，以及 4 份 Schema）。
+当前覆盖：**51 篇文档，其中 25 个接口可在线调试**（含仓库里比线上多出的表单视图 6 个接口，以及 4 份 Schema）。
 open-doc 里新增一个接口 md 并挂进 `sidebars.ts`，重跑一次就自动出现，不需要动这里的代码。
 
 ## 界面
 
-四栏：目录 / 正文（52rem） / 本页总览 / 在线运行。窗口变窄时先收「本页总览」，再收目录。
+四栏：目录 / 正文（52rem） / 本页总览 / 在线调试。窗口变窄时先收「本页总览」，再收目录。
 
 - `⌘K` 聚焦搜索，按接口名、路径、方法过滤目录
 - 「本页总览」跟随滚动高亮当前小节
-- 「在线运行」：填 API_KEY / API_SECRET → 填 Path / Query / Body → 发送 → 真实响应（状态码 + 耗时）
+- 「在线调试」：填 API_KEY / API_SECRET → 填 Path / Query / Body → 发送 → 真实响应（状态码 + 耗时）
 - 支持多方法接口（如修改单条数据的 PATCH / POST / PUT）切换
-- 在线运行默认作为停靠右栏适当压缩正文，保持“请求表单在上、返回结果 / 请求代码页签在下”的顺序；向左拖宽越过正文安全阈值后，自动切换为遮罩上的覆盖浮窗并可继续放大，缩回阈值内重新停靠，关闭后原页面布局不变
+- 在线调试默认作为停靠右栏适当压缩正文，保持“请求表单在上、返回结果 / 请求代码页签在下”的顺序；向左拖宽越过正文安全阈值后，自动切换为遮罩上的覆盖浮窗并可继续放大，缩回阈值内重新停靠，关闭后原页面布局不变
 - 请求代码支持 cURL / JavaScript / Node.js / Python / PHP / Ruby / Java / Go，并随输入实时更新；只有凭据、必填参数和 JSON 均有效时，才生成已内联 `Authorization: Basic <Base64>`、`Content-Type: application/json`、`Accept: application/json` 三个标准请求头且可直接运行的稳定代码模板
 - Body 是带语法高亮、行号、合法性校验（精确到行列）、一键格式化、全屏编辑的 JSON 编辑器
 - 亮/暗色主题
@@ -110,7 +110,7 @@ npm test                        # 三组检查，只连本机
 
 ## 在线工具
 
-URL 传参那两页的右侧面板不是「在线运行」，而是链接生成器（形态与在线运行一致，
+URL 传参那两页的右侧面板不是「在线调试」，而是链接生成器（形态与在线调试一致，
 主按钮是「复制链接」）：
 
 | 页面 | 生成什么 |
@@ -189,7 +189,7 @@ wdl deploy .                         # 数据已经生成好了就用这个
 > 用 `location.pathname` 拼会落到 worker 的兜底页面，返回一篇 HTML 而不是图片。
 > 本地 `wrangler dev` 会自己伺服 `public/`，所以这个错在本地是看不出来的。
 
-## 在线运行怎么走的
+## 在线调试怎么走的
 
 默认**浏览器直连** `https://jinshuju.net/api/v1/*`，带 `Authorization: Basic base64(key:secret)`。
 凭据只留在页面内存里：**不写 localStorage / sessionStorage，刷新或重新打开都要重填**，

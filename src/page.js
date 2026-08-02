@@ -98,10 +98,10 @@ export function renderPage({ css, js, logo }) {
     </div>
   </main>
 
-  <button class="runner-backdrop" id="runner-backdrop" type="button" aria-label="关闭在线运行"></button>
+  <button class="runner-backdrop" id="runner-backdrop" type="button" aria-label="关闭在线调试"></button>
 
-  <aside class="runner" aria-label="在线运行浮窗">
-    <div class="resize-handle resize-runner" id="resize-runner" role="separator" aria-label="调整在线运行宽度" aria-orientation="vertical" tabindex="0"></div>
+  <aside class="runner" aria-label="在线调试浮窗">
+    <div class="resize-handle resize-runner" id="resize-runner" role="separator" aria-label="调整在线调试宽度" aria-orientation="vertical" tabindex="0"></div>
     <div class="runner-top">
       <div class="runner-req" id="runner-req"></div>
       <div class="runner-acts">

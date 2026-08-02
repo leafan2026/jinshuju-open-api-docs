@@ -13,7 +13,7 @@
  * 内容源永远是仓库里的 .md，本脚本不改写正文语义，只做三件事：
  *   1. 按 sidebars.ts 还原导航树和分组
  *   2. 把站内绝对链接改写成本站 hash 路由
- *   3. 从「### Request」代码块和紧随其后的参数表里抽出接口元数据，供在线运行面板使用
+ *   3. 从「### Request」代码块和紧随其后的参数表里抽出接口元数据，供在线调试面板使用
  */
 
 import fs from "node:fs";
@@ -365,5 +365,5 @@ for (const stale of ["endpoints.json", "guides.json"]) {
 }
 
 console.log(`✓ ${path.relative(HERE, dest)}`);
-console.log(`  文档 ${Object.keys(docs).length} 篇，其中可在线运行的接口 ${apiCount} 个`);
+console.log(`  文档 ${Object.keys(docs).length} 篇，其中可在线调试的接口 ${apiCount} 个`);
 if (copiedImages.length) console.log(`  图片 ${[...new Set(copiedImages)].length} 张 → public/img/`);
