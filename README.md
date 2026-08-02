@@ -108,14 +108,15 @@ npm test                        # 三组检查，只连本机
 
 ## 在线工具
 
-除了接口页右侧的「在线运行」，URL 传参那两页正文末尾还各有一个链接生成器：
+URL 传参那两页的右侧面板不是「在线运行」，而是链接生成器（形态与在线运行一致，
+主按钮是「复制链接」）：
 
 | 页面 | 生成什么 |
 | --- | --- |
 | `url_params/form_field_url_params` | 带 `sign` 的表单链接（HMAC-SHA256 → hex → Base64） |
 | `url_params/global_field_url_params` | 带 `cusd` 的表单链接（JWT HS256） |
 
-都在浏览器里用 Web Crypto 算，`sign_secret` 不发给任何服务器、也不写进 storage。
+都在浏览器里用 Web Crypto 算，`sign_secret` 不发给任何服务器、也不落盘。
 字段会自动按 API CODE 字典序升序重排（顺序错了签名就对不上），并把用来签名的
 参数串显示出来，方便对照自己的实现。`test/check-url-params.mjs` 拿这两套算法
 对着 Python 的独立实现逐字节比对，生成的 JWT 也用 pyjwt 反向验过。
@@ -181,7 +182,9 @@ wdl deploy .                         # 数据已经生成好了就用这个
 ## 在线运行怎么走的
 
 默认**浏览器直连** `https://jinshuju.net/api/v1/*`，带 `Authorization: Basic base64(key:secret)`。
-凭据只存在浏览器的 `sessionStorage`，关标签页即清除，不经过任何第三方服务器——这比走代理更安全。
+凭据只留在页面内存里：**不写 localStorage / sessionStorage，刷新或重新打开都要重填**，
+也不经过任何第三方服务器——这比走代理更安全。URL 传参那两页的 `sign_secret` 同样不落盘。
+（早先版本存过 `sessionStorage.jsj_creds`，现在启动时会主动清掉那份残留。）
 
 万一哪天金数据收紧了 CORS，或者你需要走内网出口，才需要转发端点。在页面里加一行即可切换：
 

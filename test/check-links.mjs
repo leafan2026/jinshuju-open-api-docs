@@ -99,6 +99,20 @@ check(safeImgSrc("data:image/png;base64,AAA") !== null, "data:image/png 放行",
 check(safeImgSrc("https://help-assets.jinshuju.net/a.png") !== null, "外部 https 图片放行", "被误拦");
 check(String(safeImgSrc("img/a.png")).startsWith(ASSET_BASE), "相对图片拼上资源基地址", `得到 ${safeImgSrc("img/a.png")}`);
 
+console.log("凭据不落盘：");
+// 填过的 API_KEY / API_SECRET / sign_secret 不该跨刷新留存，所以任何 storage 都不能写
+const setItems = [...appSrc.matchAll(/(?:session|local)Storage\.setItem\(([^)]*)\)/g)].map((m) => m[1]);
+// 词表要精确：布局宽度那处是 setItem(key, ...)，key 只是形参名，不能算凭据
+const leaky = setItems.filter((arg) => /creds|secret|api_?key|passw/i.test(arg));
+check(leaky.length === 0, "没有把凭据写进 localStorage / sessionStorage",
+  `这些写入看着像凭据：${leaky.join(" | ")}`);
+check(/sessionStorage\.removeItem\("jsj_creds"\)/.test(appSrc),
+  "启动时清掉早先版本残留的 jsj_creds", "找不到清理代码");
+// 允许留存的只有主题和几个布局宽度
+// remember() 存布局宽度时第一个参数是形参 key，键名常量在调用处（jsj_sidebar_w 等）
+const allowed = setItems.filter((arg) => !/^"jsj_theme"|^key,/.test(arg.trim()));
+check(allowed.length === 0, "只有主题和布局宽度会落盘", `多出来的写入：${allowed.join(" | ")}`);
+
 const failed = results.filter((x) => !x.ok);
 console.log(`  —— ${results.length} 项，失败 ${failed.length} 项`);
 process.exit(failed.length === 0 ? 0 : 1);

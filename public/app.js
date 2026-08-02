@@ -576,7 +576,7 @@
       '<input class="ipt" id="in-secret" type="password" autocomplete="off" placeholder="在个人中心 → API 获取"></div>' +
       '<div class="cred-links">在 <a href="https://next.jinshuju.net/profile/api" target="_blank" rel="noopener">个人中心 → API</a>' +
       ' 或 <a href="https://next.jinshuju.net/system/api_licence" target="_blank" rel="noopener">系统设置 → 企业 API</a> 获取' +
-      '，凭据只存在本浏览器</div></div>';
+      '，凭据不落盘、刷新即清除</div></div>';
 
     if (a.pathParams.length) {
       html += '<div class="rsec"><div class="rsec-head">' +
@@ -627,8 +627,8 @@
     var k = el("in-key"), s = el("in-secret");
     k.value = state.creds.key; s.value = state.creds.secret;
     function onCred() {
+      // 凭据只留在内存里：刷新或重新打开都不该还在（见 init 里的清理）
       state.creds.key = k.value; state.creds.secret = s.value;
-      try { sessionStorage.setItem("jsj_creds", JSON.stringify(state.creds)); } catch (err) { /* noop */ }
       if (state.tab === "code") renderOut();
     }
     k.addEventListener("input", onCred);
@@ -1526,8 +1526,8 @@
       '<div class="rrow"><label for="ut-secret">sign_secret' +
       (cfg.jwt ? '<span class="star">*</span>' : "") + "</label>" +
       '<input class="ipt" id="ut-secret" type="password" autocomplete="off" placeholder="企业密钥"></div>' +
-      '<div class="cred-links">密钥只在这个浏览器里参与计算，不会发送；企业高级版才有，' +
-      "可以联系客户成功经理开通</div></div>" +
+      '<div class="cred-links">密钥只在本机参与计算，不发送也不落盘、刷新即清除；' +
+      "企业高级版才有，可以联系客户成功经理开通</div></div>" +
       '<div class="rsec"><div class="rsec-head">' +
       '<span class="rsec-tag">FIELDS</span>' +
       '<span class="rsec-name">' + esc(cfg.rowHint) + "</span>" +
@@ -2049,10 +2049,9 @@
       if (ev.target === ev.currentTarget && state.closeFullEditor) state.closeFullEditor();
     });
 
-    try {
-      var c = JSON.parse(sessionStorage.getItem("jsj_creds") || "{}");
-      state.creds.key = c.key || ""; state.creds.secret = c.secret || "";
-    } catch (e) { /* noop */ }
+    // API 凭据和 sign_secret 一律不落盘：刷新、重开都要求重填。
+    // 这里顺手清掉早先版本写进 sessionStorage 的那份，免得老用户浏览器里一直留着。
+    try { sessionStorage.removeItem("jsj_creds"); } catch (e) { /* noop */ }
 
     el("main").addEventListener("scroll", function () {
       if (spyToc.raf) return;
