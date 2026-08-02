@@ -807,7 +807,9 @@ select.ipt { font-family: var(--font-base); cursor: pointer; }
   background: transparent; border-color: #333944; color: #b9c0cc;
 }
 .jsed-bar .rtool:hover { border-color: #59616f; color: #e8ecf2; background: #22262e; }
-.jsed-bar .rtool-icon { width: 26px; }
+/* 纯图标按钮要把 .jsed-bar .rtool 的左右内边距清掉，
+   否则 26px 宽被内边距吃掉，图标会被挤偏 */
+.jsed-bar .rtool-icon { width: 26px; padding: 0; }
 /* 深色底上正文那个红色 accent 对比度不够，固定用亮一档的 */
 .jsed-bar .doc-jump { color: #ff9c94; font-size: 12px; }
 

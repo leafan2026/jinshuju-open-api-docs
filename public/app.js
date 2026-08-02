@@ -790,10 +790,13 @@
     var home = document.createElement("div");
     home.className = "jsed-slot";
 
-    var ICON_EXPAND = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7">' +
-      '<path d="M9.5 2h4.5v4.5M6.5 14H2V9.5M14 9.5V14H9.5M2 6.5V2h4.5"/></svg>';
-    var ICON_SHRINK = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7">' +
-      '<path d="M14 2.5l-4.5 4.5M9.5 2.5H14V7M2 13.5l4.5-4.5M6.5 13.5H2V9"/></svg>';
+    // 四角折线：开口朝外 = 展开到四角；开口朝内 = 收拢回中心
+    var ICON_EXPAND = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" ' +
+      'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<path d="M6 2.5H2.5V6M10 2.5h3.5V6M6 13.5H2.5V10M10 13.5h3.5V10"/></svg>';
+    var ICON_SHRINK = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" ' +
+      'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<path d="M2.5 6H6V2.5M13.5 6H10V2.5M2.5 10H6v3.5M13.5 10H10v3.5"/></svg>';
     var fullBtn = el("jsed-full");
     function syncFullBtn() {
       var on = box.classList.contains("jsed-full");
