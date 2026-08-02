@@ -615,10 +615,9 @@
         '<span class="rsec-tag">BODY</span><span class="rsec-name">application/json</span>' +
         '<span class="jsed-status" id="jsed-status"></span>' +
         '<span class="grow"></span>' +
-        '<button class="rtool" id="jsed-fmt" type="button" title="按 2 空格缩进重新格式化">格式化</button>' +
-        '<button class="rtool rtool-icon" id="jsed-full" type="button"></button>' +
-        (a.bodyParams && a.bodyParams.length ? paramHelpButtonHtml() : "") + "</div>" +
-        jsonEditorHtml(bodyDefault(a)) +
+        "</div>" +
+        // 格式化 / 全屏 / 参数说明都挂在编辑器自己的菜单栏上，分区标题行保持短，窄面板下才不折行
+        jsonEditorHtml(bodyDefault(a), a.bodyParams && a.bodyParams.length) +
         '<div class="rsec-hint">点击任意位置直接编辑 JSON</div></div>';
     }
 
@@ -714,9 +713,16 @@
 
   /* ---------- JSON 编辑器 ---------- */
 
-  // 工具栏在分区标题行上（见 renderRunner），这里只剩行号 + 代码
-  function jsonEditorHtml(initial) {
+  // 菜单栏在编辑器自己顶上：左边 JSON，右边格式化 / 全屏 / 参数说明
+  function jsonEditorHtml(initial, withParamHelp) {
     return '<div class="jsed" id="jsed">' +
+      '<div class="jsed-bar">' +
+      '<span class="jsed-name">JSON</span>' +
+      '<span class="grow"></span>' +
+      '<button class="rtool" id="jsed-fmt" type="button" title="按 2 空格缩进重新格式化">格式化</button>' +
+      '<button class="rtool rtool-icon" id="jsed-full" type="button"></button>' +
+      (withParamHelp ? paramHelpButtonHtml() : "") +
+      "</div>" +
       '<div class="jsed-body">' +
       '<div class="jsed-gutter" id="jsed-gutter"></div>' +
       '<div class="jsed-code">' +
