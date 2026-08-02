@@ -569,14 +569,14 @@
 
     var html = "";
 
-    html += '<div class="rsec">' +
+    html += '<div class="rsec"><div class="rsec-head">' +
+      '<span class="rsec-tag">AUTH</span><span class="rsec-name">Basic 认证</span></div>' +
       '<div class="rrow"><label for="in-key">API_KEY<span class="star">*</span></label>' +
       '<input class="ipt" id="in-key" type="text" autocomplete="off" placeholder="在个人中心 → API 获取"></div>' +
       '<div class="rrow"><label for="in-secret">API_SECRET<span class="star">*</span></label>' +
       '<input class="ipt" id="in-secret" type="password" autocomplete="off" placeholder="在个人中心 → API 获取"></div>' +
       '<div class="cred-links">在 <a href="https://next.jinshuju.net/profile/api" target="_blank" rel="noopener">个人中心 → API</a>' +
-      ' 或 <a href="https://next.jinshuju.net/system/api_licence" target="_blank" rel="noopener">系统设置 → 企业 API</a> 获取' +
-      '，凭据不落盘、刷新即清除</div></div>';
+      ' 或 <a href="https://next.jinshuju.net/system/api_licence" target="_blank" rel="noopener">系统设置 → 企业 API</a> 获取</div></div>';
 
     if (a.pathParams.length) {
       html += '<div class="rsec"><div class="rsec-head">' +
@@ -612,7 +612,7 @@
     } else if (["POST", "PUT", "PATCH"].indexOf(a.method) !== -1 || (a.alsoMethods || []).length) {
       // JSON 编辑器的状态和工具按钮都提到分区标题行上，编辑器本身只剩行号 + 代码
       html += '<div class="rsec"><div class="rsec-head">' +
-        '<span class="rsec-tag">BODY</span><span class="rsec-name">application/json</span>' +
+        '<span class="rsec-tag">BODY</span>' +
         '<span class="jsed-status" id="jsed-status"></span>' +
         '<span class="grow"></span>' +
         "</div>" +
