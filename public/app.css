@@ -696,6 +696,7 @@ body.resize-col .layout { transition: none; }
 /* 分区标题行右侧的工具按钮 */
 .rtool {
   flex: none; height: 30px; padding: 0 13px;
+  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
   border: 1px solid var(--gd-border-strong); border-radius: var(--gd-radius-sm);
   background: var(--gd-bg); color: var(--gd-ink-soft);
   font: 500 12.5px/1 var(--font-base); cursor: pointer;

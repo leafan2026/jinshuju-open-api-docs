@@ -797,7 +797,8 @@
     var fullBtn = el("jsed-full");
     function syncFullBtn() {
       var on = box.classList.contains("jsed-full");
-      fullBtn.innerHTML = on ? ICON_SHRINK + "退出全屏" : ICON_EXPAND;
+      // 始终只放图标：塞进「退出全屏」四个字会把这个图标按钮的宽度撑爆
+      fullBtn.innerHTML = on ? ICON_SHRINK : ICON_EXPAND;
       fullBtn.title = on ? "退出全屏（Esc）" : "全屏编辑";
     }
     function enterFull() {
