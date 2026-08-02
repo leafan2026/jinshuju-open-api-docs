@@ -572,9 +572,9 @@
     html += '<div class="rsec"><div class="rsec-head">' +
       '<span class="rsec-tag">AUTH</span><span class="rsec-name">Basic 认证</span></div>' +
       '<div class="rrow"><label for="in-key">API_KEY<span class="star">*</span></label>' +
-      '<input class="ipt" id="in-key" type="text" autocomplete="off" placeholder="在个人中心 → API 获取"></div>' +
+      '<input class="ipt" id="in-key" type="text" autocomplete="off" placeholder="你的 API Key"></div>' +
       '<div class="rrow"><label for="in-secret">API_SECRET<span class="star">*</span></label>' +
-      '<input class="ipt" id="in-secret" type="password" autocomplete="off" placeholder="在个人中心 → API 获取"></div>' +
+      '<input class="ipt" id="in-secret" type="password" autocomplete="off" placeholder="你的 API Secret"></div>' +
       '<div class="cred-links">在 <a href="https://next.jinshuju.net/profile/api" target="_blank" rel="noopener">个人中心 → API</a>' +
       ' 或 <a href="https://next.jinshuju.net/system/api_licence" target="_blank" rel="noopener">系统设置 → 企业 API</a> 获取</div></div>';
 
@@ -1528,7 +1528,7 @@
       '<div class="rsec">' +
       '<div class="rrow"><label for="ut-token">form_token<span class="star">*</span></label>' +
       '<input class="ipt" id="ut-token" type="text" autocomplete="off" spellcheck="false" ' +
-      'placeholder="粘贴表单链接或 /f/ 后面那串"></div>' +
+      'placeholder="表单链接或 /f/ 后那串"></div>' +
       '<div class="rrow"><label for="ut-secret">sign_secret' +
       (cfg.jwt ? '<span class="star">*</span>' : "") + "</label>" +
       '<input class="ipt" id="ut-secret" type="password" autocomplete="off" placeholder="企业密钥"></div>' +

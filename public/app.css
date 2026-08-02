@@ -712,7 +712,9 @@ body.resize-col .layout { transition: none; }
 
 /* 参数行做成表格式：平时看着就是一行数据，鼠标移上去或点进去才显出输入框 */
 .rrow {
-  display: grid; grid-template-columns: minmax(0, 168px) minmax(0, 1fr);
+  /* 标签列只给到放得下最长参数名（API_SECRET / sign_secret）的宽度：
+     面板本来就窄，固定 168px 会把输入框挤到两百出头，placeholder 都显示不全 */
+  display: grid; grid-template-columns: minmax(0, 116px) minmax(0, 1fr);
   gap: 12px; align-items: center;
   padding: 4px 0;
   border-bottom: 1px solid var(--gd-border);
