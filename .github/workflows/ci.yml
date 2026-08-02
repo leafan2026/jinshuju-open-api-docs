@@ -1,6 +1,8 @@
-# 构建 + 跑检查。不做部署——控制面 admin-run.jinapp.net 只放行特定来源，
-# GitHub 的构建机在境外公网会被前置代理挡掉（403 liteproxy），
-# 所以部署仍然手动跑（见 README）。
+# 构建 + 检查，push 到 main 时顺带发布 GitHub Pages。
+#
+# Pages 能自动发，是因为它发布到 GitHub 自己，不需要访问 admin-run.jinapp.net——
+# 那个控制面前面的代理只放行特定来源，境外的构建机会被挡掉（403 liteproxy），
+# 所以 WDL 那个正式地址仍然手动部署（见 README）。
 #
 # 正文内容不在本仓库，而在 leafan2026/open-doc（公开仓库）；
 # site.json 和 public/img 都是构建产物、不进版本控制，所以每次都要重新生成。
@@ -15,6 +17,11 @@ on:
 
 permissions:
   contents: read
+
+# 同一时刻只跑一个发布，后来的排队而不是互相覆盖
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
   check:
@@ -52,3 +59,26 @@ jobs:
 
       - name: 静态构建
         run: node scripts/build-static.mjs
+
+      # 检查全绿才打包，PR 不发布
+      - name: 打包 Pages 产物
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  # deploy-pages 必须单独跑在带 github-pages 环境的 job 里
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 发布到 Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

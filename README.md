@@ -16,7 +16,9 @@ access-control-allow-headers: authorization,content-type
 所以「在线运行」是浏览器直连 `jinshuju.net`，凭据从浏览器直接到金数据，不经任何第三方服务器。
 `npm run build` 产出的 `dist/` 扔 GitHub Pages / OSS / Nginx 就能跑。
 
-预览地址（跑在 WDL 上，只是个部署目标，不是依赖）：<https://lf.run.jinapp.net/jinshuju-open-api-docs/>
+两个地址（都只是部署目标，不是依赖）：
+- WDL，手动部署：<https://lf.run.jinapp.net/jinshuju-open-api-docs/>
+- GitHub Pages，push 到 main 自动发：<https://leafan2026.github.io/jinshuju-open-api-docs/>
 
 ## 数据是怎么来的
 
@@ -134,7 +136,15 @@ npm run build -- --out=public-dist   # 换输出目录
 npm run preview                 # 本地起服务器看 dist/
 ```
 
-`dist/` 直接扔任何静态托管就行。GitHub Pages 的话：
+`dist/` 直接扔任何静态托管就行——产物完全自包含、资源都是相对路径，
+放在任意子路径下都能跑（实测过 `/some/deep/path/` 这种深层目录）。
+
+**GitHub Pages 已经自动发布**：push 到 main，`.github/workflows/ci.yml`
+检查全绿后会把 `dist/` 发到 <https://leafan2026.github.io/jinshuju-open-api-docs/>。
+它能自动发是因为发布目标是 GitHub 自己，不需要访问 `admin-run.jinapp.net`——
+WDL 那个正式地址仍然手动部署。
+
+要自己接别的托管，构建那步是一样的：
 
 ```yaml
 # .github/workflows/deploy.yml
