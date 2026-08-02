@@ -359,8 +359,9 @@ body.resize-col .layout { transition: none; }
 .urltool-res-head > span {
   color: var(--gd-ink-soft); font: 550 0.8125rem/1.5 var(--font-base);
 }
-.urltool-res-head .note {
-  color: var(--gd-ink-muted); font-weight: 400; font-size: 0.75rem;
+.urltool-res-note {
+  margin: -2px 0 6px;
+  color: var(--gd-ink-muted); font-size: 0.75rem; line-height: 1.5;
 }
 .urltool-copy {
   margin-left: auto; padding: 2px 7px;

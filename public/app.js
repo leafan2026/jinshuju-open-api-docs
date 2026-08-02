@@ -1535,9 +1535,7 @@
       'placeholder="表单链接或 /f/ 后那串"></div>' +
       '<div class="rrow"><label for="ut-secret">sign_secret' +
       (cfg.jwt ? '<span class="star">*</span>' : "") + "</label>" +
-      '<input class="ipt" id="ut-secret" type="password" autocomplete="off" placeholder="企业密钥"></div>' +
-      '<div class="cred-links">密钥只在本机参与计算，不发送也不落盘、刷新即清除；' +
-      "企业高级版才有，可以联系客户成功经理开通</div></div>" +
+      '<input class="ipt" id="ut-secret" type="password" autocomplete="off" placeholder="企业密钥"></div></div>' +
       '<div class="rsec"><div class="rsec-head">' +
       '<span class="rsec-tag">FIELDS</span>' +
       '<span class="rsec-name">' + esc(cfg.rowHint) + "</span>" +
@@ -1664,8 +1662,9 @@
     var id = stashCopy(text);
     return '<div class="urltool-res' + (opts.primary ? " primary" : "") + '">' +
       '<div class="urltool-res-head"><span>' + esc(label) + "</span>" +
-      (opts.note ? '<span class="note">' + esc(opts.note) + "</span>" : "") +
       '<button class="urltool-copy" type="button" data-copy="' + id + '">复制</button></div>' +
+      // 说明单独一行：跟标题挤在一起会把标题行撑成两行，复制按钮就跟着错位
+      (opts.note ? '<div class="urltool-res-note">' + esc(opts.note) + "</div>" : "") +
       '<pre class="urltool-res-body"><code>' + (opts.json ? hlJson(text) : esc(text)) + "</code></pre></div>";
   }
 
@@ -1680,8 +1679,7 @@
       '<button class="tab' + (state.tab === "code" ? " on" : "") + '" data-tab="code">生成代码</button>' +
       '<span class="right">' +
       (state.tab === "code"
-        ? '<span class="ms">密钥务必留在服务端</span>' +
-          '<select class="lang-select" id="ut-lang">' + UT_LANGS.map(function (l) {
+        ? '<select class="lang-select" id="ut-lang">' + UT_LANGS.map(function (l) {
             return '<option value="' + l.id + '"' + (l.id === state.utLang ? " selected" : "") + ">" + l.label + "</option>";
           }).join("") + "</select>"
         : '<span class="pill ' + (ready ? "ok" : "bad") + '">' + (ready ? "已生成" : "待填写") + "</span>") +
