@@ -677,9 +677,9 @@ body.resize-col .layout { transition: none; }
 
 /* ---- 分区：凭据 / PATH / QUERY / BODY ---- */
 
-.rsec { padding: 18px 0; border-top: 1px solid var(--gd-border); }
-.rsec:first-child { padding-top: 4px; border-top: 0; }
-.rsec:last-child { padding-bottom: 4px; }
+/* 横线只画在参数行之间（见 .rrow）；分区之间靠空白分开，别再来一条线 */
+.rsec { padding: 0 0 4px; }
+.rsec + .rsec { margin-top: 26px; }
 .rsec-head {
   display: flex; align-items: center; flex-wrap: wrap; gap: 8px 9px;
   margin-bottom: 12px;
