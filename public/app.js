@@ -539,6 +539,12 @@
     return true;
   }
 
+  // 路径参数的填写说明。只写确定的：另外两个（view_token / serial_number）
+  // 文档里没给格式，与其编一个不如留参数名当占位
+  var PATH_HINTS = {
+    form_token: "表单链接 /f/ 后六位编码",
+  };
+
   function renderRunner() {
     var wrap = el("runner-scroll");
     var a = api();
@@ -583,11 +589,11 @@
         '<span class="rsec-tag">PATH</span><span class="rsec-name">路径参数</span></div>' +
         a.pathParams.map(function (p) {
           // 数据里的占位符是 FORM_TOKEN 这种大写，显示成小写更像参数名
-          return '<div class="rrow"><label title="' + esc(p.desc || p.name) + '">' +
-            esc(p.name.toLowerCase()) +
+          var key = p.name.toLowerCase();
+          return '<div class="rrow"><label title="' + esc(p.desc || p.name) + '">' + esc(key) +
             (p.required ? '<span class="star">*</span>' : "") + "</label>" +
             '<input class="ipt" data-pp="' + esc(p.name) + '" placeholder="' +
-            esc(p.name.toLowerCase()) + '"></div>';
+            esc(PATH_HINTS[key] || key) + '"></div>';
         }).join("") + "</div>";
     }
 
@@ -1532,7 +1538,7 @@
       '<div class="rsec">' +
       '<div class="rrow"><label for="ut-token">form_token<span class="star">*</span></label>' +
       '<input class="ipt" id="ut-token" type="text" autocomplete="off" spellcheck="false" ' +
-      'placeholder="表单链接或 /f/ 后那串"></div>' +
+      'placeholder="表单链接 /f/ 后六位编码"></div>' +
       '<div class="rrow"><label for="ut-secret">sign_secret' +
       (cfg.jwt ? '<span class="star">*</span>' : "") + "</label>" +
       '<input class="ipt" id="ut-secret" type="password" autocomplete="off" placeholder="企业密钥"></div></div>' +
