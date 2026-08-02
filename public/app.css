@@ -949,6 +949,18 @@ button.pill {
 button.pill.bad:hover { text-decoration: underline; outline: 1px solid color-mix(in srgb, var(--m-delete) 30%, transparent); }
 .ms { color: var(--gd-ink-muted); font-size: 11.5px; }
 
+/* 语言图标（simple-icons，CC0）跟在下拉左边。
+   品牌色两套，按主题挑——有些官方色在其中一侧对比度不够 */
+.lang-pick {
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.lang-ico-slot { display: inline-flex; }
+.lang-ico {
+  display: inline-flex; color: var(--ico);
+}
+[data-theme="dark"] .lang-ico { color: var(--ico-dark, var(--ico)); }
+.lang-ico svg { display: block; }
+
 .lang-select {
   border: 1px solid var(--gd-border); border-radius: var(--gd-radius-sm);
   background: var(--gd-bg); color: var(--gd-ink-soft);
