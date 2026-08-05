@@ -1,0 +1,79 @@
+# 这个仓库自己的 GitHub Pages 预览 —— 只存在于本仓库，不是上游的东西。
+#
+# 上游的 deploy.yml 原样保留（它按 baseUrl: '/' 构建，服务于 open.jinshuju.net）。
+# 本仓库的 Pages 是项目站，地址带 /<仓库名>/ 子路径，用那份配置构建出来的产物
+# 资源引用会全部落到根上而 404。所以这里在 CI 里生成一份只覆盖 url / baseUrl 的
+# 配置，用 --config 指过去；仓库里的 docusaurus.config.ts 一个字不动。
+#
+# 基路径由 actions/configure-pages 从仓库真实的 Pages 配置推导，不写死。
+name: Preview on GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Resolve Pages base path
+        id: pages
+        uses: actions/configure-pages@v5
+
+      # 只覆盖 url / baseUrl，其余全部继承仓库里的配置
+      - name: Write preview config
+        env:
+          PAGES_ORIGIN: ${{ steps.pages.outputs.origin }}
+          PAGES_BASE: ${{ steps.pages.outputs.base_path }}
+        run: |
+          cat > docusaurus.preview.config.ts <<'EOF'
+          import type {Config} from '@docusaurus/types';
+          import base from './docusaurus.config';
+          const withSlash = (p: string) => (p.endsWith('/') ? p : p + '/');
+          const config: Config = {
+            ...base,
+            url: process.env.PAGES_ORIGIN || base.url,
+            baseUrl: withSlash(process.env.PAGES_BASE || '/'),
+          };
+          export default config;
+          EOF
+
+      - name: Build
+        env:
+          PAGES_ORIGIN: ${{ steps.pages.outputs.origin }}
+          PAGES_BASE: ${{ steps.pages.outputs.base_path }}
+        run: npx docusaurus build --config docusaurus.preview.config.ts
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
